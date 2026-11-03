@@ -17,6 +17,9 @@ jobs:
       - name: Portability
         run: sh scripts/check-portability.sh
 
+      - name: Docs links
+        run: python3 scripts/check-links.py
+
       - name: Gate tests
         run: |
           python3 -m pip install --quiet pytest
