@@ -428,6 +428,25 @@ def test_cpp_file_refs_check_bounds(tmp_path):
     assert "past the end" in findings[0].message
 
 
+def test_shortcut_is_a_comment_marker_only(tmp_path):
+    source = tmp_path / "legacy.cpp"
+    source.write_text(
+        "// shortcut: only plain http is tunnelled. Revisit with P5.\n"
+        "# shortcut: keeps everything in memory\n"
+        "/* shortcut: capped pagination; switch to an offset above 1000 */\n"
+        'const char* msg = "shortcut: inside a string";\n'
+        '"""shortcut: inside a docstring"""\n'
+        "connectUnique(true, mAddDealShortcut, &QShortcut::activated, this);\n",
+        encoding="utf-8",
+    )
+
+    findings = spec_check.check_shortcuts([source], lambda path: path.name)
+
+    assert [(finding.where, finding.message) for finding in findings] == [
+        ("legacy.cpp:2", "shortcut states no limit or no return condition")
+    ]
+
+
 def test_cpp_shortcut_markers_are_read(tmp_path):
     spec = _cpp_spec(tmp_path, "")
     source = tmp_path / "beta" / "Sources" / "legacy.cpp"

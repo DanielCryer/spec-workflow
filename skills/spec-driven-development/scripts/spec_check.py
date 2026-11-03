@@ -19,8 +19,10 @@ Checks:
   lists every record exactly once, and every ``D<n>``/``P<n>`` mentioned in the
   folder exists. The index may be a line per decision or a thematic digest that
   names the numbers; ``--index`` sets how strict that check is;
-- ``shortcuts`` every ``shortcut:`` marker states a limit and a return
-  condition;
+- ``shortcuts`` every ``shortcut:`` marker in a code comment states a limit and
+  a return condition. Only comments count: a marker inside a string literal or
+  a docstring is not a marker, and identifiers such as ``QShortcut::activated``
+  do not match;
 - ``todo``      ``todo.md`` stays under the cap.
 
 The gate never runs the tests: running them is the executor's job, and the
@@ -114,6 +116,9 @@ _ACTIVE_HEADING = re.compile(
     r"^##[ \t]+(?:Действующие решения|Active decisions)[ \t]*$", re.MULTILINE | re.IGNORECASE
 )
 _REFERENCE = re.compile(r"\b([DP])(\d{1,3})\b")
+# A marker lives in a comment: `# shortcut:`, `// shortcut:`, `/* shortcut: */`.
+# Without the prefix, `QShortcut::activated` and strings like "shortcut: …"
+# would count as markers.
 _SHORTCUT = re.compile(r"(?:\*|//+|#)\s*shortcut:\s*(.+)", re.IGNORECASE)
 _PATH_TOKEN = re.compile(rf"[\w./\\-]+\.(?:{_EXTENSIONS})\b")
 _TEST_WORD = re.compile(r"\b[Tt]ests?\b|\bтест", re.IGNORECASE)
@@ -519,9 +524,15 @@ def check_numbering(
 
 
 def _join_comment(lines: Sequence[str], start: int) -> str:
-    """Marker text: the marker line and up to two lines of its paragraph."""
+    """Marker text: the marker line and up to two lines of its paragraph.
+
+    The paragraph ends at the next marker: two neighbouring shortcuts must not
+    lend each other a return condition.
+    """
     parts = []
-    for line in lines[start : start + 3]:
+    for offset, line in enumerate(lines[start : start + 3]):
+        if offset and _SHORTCUT.search(line):
+            break
         stripped = _clean_comment(line)
         if not stripped:
             break
