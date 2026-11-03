@@ -237,8 +237,11 @@ def _symbol_name(span: str) -> str | None:
     span = span.removesuffix("()")
     span = _TYPE_ARGS.sub("", span)
     span = span.split("::")[-1]
-    dotted = "." in span
-    span = span.rsplit(".", 1)[-1]
+    # A qualified name is `Head.tail`, not a dotfile: `.gitignore` must not turn
+    # into the symbol `gitignore`.
+    head, _, tail = span.rpartition(".")
+    dotted = bool(head) and all(_IDENTIFIER.fullmatch(part) for part in head.split("."))
+    span = tail or span
     if not _IDENTIFIER.fullmatch(span):
         return None
     if dotted:

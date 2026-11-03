@@ -44,6 +44,12 @@ def test_symbol_candidates_read_cpp_names():
     assert spec_check.symbol_candidates(text) == ["FieldMask", "ResetFieldsByFlag"]
 
 
+def test_dotfiles_and_paths_are_not_symbols():
+    text = "`.gitignore` `.github` `pyproject.toml` `Event.to_record` `a.b`"
+
+    assert spec_check.symbol_candidates(text) == ["to_record", "b"]
+
+
 def test_unknown_symbol_is_an_error_only_in_checked_items():
     plan = spec_check.parse_plan(
         "- [x] has `Core`\n- [x] has `Missing`\n- [ ] has `Future`\n"
