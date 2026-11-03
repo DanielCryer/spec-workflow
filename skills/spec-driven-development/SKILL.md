@@ -9,7 +9,7 @@ description: Use when the user explicitly asks to work in spec-driven mode (spec
 
 **Корень репозитория спек — переменная `SPECS_ROOT`.** Не задана — спроси путь один раз и держи его на сессию. Путь в тексты и конфиги не хардкодить.
 
-**Структура каталогов — README репозитория спек** (шаблон для нового — `templates/specs-repo` в этой библиотеке). **Правила ведения записей — `references/formats.md`** рядом с этим файлом. Расходятся — структура по README, правила записей по `formats.md`.
+**Структура каталогов — README репозитория спек** (шаблон для нового — `templates/specs-repo` в корне библиотеки, из base dir скилла это `../../templates/specs-repo`). **Правила ведения записей — `references/formats.md`** рядом с этим файлом. Расходятся — структура по README, правила записей по `formats.md`.
 
 ## Когда включать
 
@@ -107,10 +107,10 @@ description: Use when the user explicitly asks to work in spec-driven mode (spec
 
 ## Гейт
 
-Детерминированная проверка формы — `scripts/spec_check.py` рядом с этим файлом. Запуск:
+Детерминированная проверка формы — `scripts/spec_check.py` рядом с этим файлом. Запуск из base dir скилла:
 
 ```sh
-python3 scripts/spec_check.py --spec <SPECS_ROOT>/tasks/<папка>
+python3 <base>/scripts/spec_check.py --spec <SPECS_ROOT>/tasks/<папка>
 ```
 
-На Windows вместо `python3` подойдёт `py`. Скрипт берёт репозитории из `repos:` в `index.md` и ищет их под `PROJECTS_ROOT` (по умолчанию — рядом со спекой); переопределения: `--repo NAME=PATH`, `--projects-root`, `--file-root`, `--no-tests`, `--strict`, `--python`.
+На Windows вместо `python3` подойдёт `py`. Скрипт берёт репозитории из `repos:` в `index.md` и ищет их под `PROJECTS_ROOT` (по умолчанию — родитель `SPECS_ROOT`, если он задан, иначе `~/projects`); переопределения: `--repo NAME=PATH`, `--projects-root`, `--file-root`, `--no-tests`, `--strict`, `--python`.
