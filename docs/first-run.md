@@ -2,7 +2,7 @@
 
 Цель — своими руками увидеть, как гейт ловит расхождение с кодом, и получить один `BLOCKED` от ревьюера. Ничего реального не трогаем: демо-репозиторий во временном каталоге.
 
-Нужны: OpenCode с установленными разделами 2–3C из `INSTALL.md`, `git`, Python 3 с `pytest`.
+Нужны: OpenCode с установленными разделами 2–3C из `INSTALL.md`, `git`, Python 3. Собирать демо-код не нужно: гейт читает исходники, а тесты запускает исполнитель, не гейт.
 
 ## 1. Демо-репозиторий кода
 
@@ -12,28 +12,36 @@ cd ~/projects/demo-calc
 git init
 ```
 
-`src/calc.py`:
+`src/calc.hpp`:
 
-```python
-class Calculator:
-    def add(self, a: int, b: int) -> int:
-        return a + b
+```cpp
+class Calculator
+{
+public:
+    int Add(int a, int b);
+};
 ```
 
-`tests/test_calc.py`:
+`src/calc.cpp`:
 
-```python
-from src.calc import Calculator
+```cpp
+#include "calc.hpp"
 
-
-def test_add():
-    assert Calculator().add(2, 3) == 5
+int Calculator::Add(int a, int b)
+{
+    return a + b;
+}
 ```
 
-`pytest.ini` (по его наличию гейт понимает, что тесты репозитория надо запускать):
+`tests/calc_test.cpp`:
 
-```ini
-[pytest]
+```cpp
+#include "calc.hpp"
+
+TEST(Calc, Add)
+{
+    EXPECT_EQ(Calculator().Add(2, 3), 5);
+}
 ```
 
 ```sh
@@ -92,7 +100,7 @@ repos: [demo-calc]
 - **Альтернативы:** —
 - **Последствия:** новые операции добавляются туда же.
 - **Статус:** действует
-- **Ссылки:** demo-calc@<hash>, `src/calc.py:1`
+- **Ссылки:** demo-calc@<hash>, `src/calc.cpp:3`
 ```
 
 `tasks/demo-1/plan.md`:
@@ -102,7 +110,7 @@ repos: [demo-calc]
 
 ## Этап 1
 
-- [x] Сложение в `Calculator`, тест `tests/test_calc.py`, коммит demo-calc@<hash>.
+- [x] Сложение в `Calculator`, тест `tests/calc_test.cpp`, коммит demo-calc@<hash>.
 - [ ] Умножение в `Calculator`.
 ```
 
@@ -113,14 +121,14 @@ python3 ~/src/spec-workflow/skills/spec-driven-development/scripts/spec_check.py
   --spec ~/projects/specs/tasks/demo-1
 ```
 
-Ожидаемо: `0 error(s), 0 warning(s)`. Если `pytest` не установлен — сначала `pip install pytest` (или добавьте `--no-tests`, чтобы пропустить прогон тестов).
+Ожидаемо: `0 error(s), 0 warning(s)`.
 
 ## 5. Гейт красный
 
 Поменяйте в `plan.md` имя класса на несуществующее:
 
 ```markdown
-- [x] Сложение в `Calculatr`, тест `tests/test_calc.py`, коммит demo-calc@<hash>.
+- [x] Сложение в `Calculatr`, тест `tests/calc_test.cpp`, коммит demo-calc@<hash>.
 ```
 
 Тот же запуск теперь даёт:
@@ -140,8 +148,10 @@ ERROR  symbols    plan.md:5  checked item names `Calculatr`, which is not in the
 > Найди субагента `spec-reviewer` и проверь такой дифф по скиллу `spec-review`. Спека требует, чтобы тест проверял сложение.
 >
 > ```diff
-> +def test_add():
-> +    assert Calculator().add(2, 3) == Calculator().add(2, 3)
+> +TEST(Calc, Add)
+> +{
+> +    EXPECT_EQ(Calculator().Add(2, 3), Calculator().Add(2, 3));
+> +}
 > ```
 
 Ожидаемая реакция — `BLOCKED` с находкой «тест проходит при пустой реализации». Это второй механизм: форма у гейта, смысл у ревьюера.

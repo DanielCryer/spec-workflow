@@ -35,6 +35,15 @@ def test_symbol_candidates_skip_artifacts_endpoints_and_lowercase():
     assert spec_check.symbol_candidates(text) == ["Core", "to_record"]
 
 
+def test_symbol_candidates_read_cpp_names():
+    text = (
+        "`ChatRouter.hpp` `ntpro::dto::FieldMask` `FieldMask<T>` "
+        "`ResetFieldsByFlag()` `std::string` `QuoteEngine.cpp`"
+    )
+
+    assert spec_check.symbol_candidates(text) == ["FieldMask", "ResetFieldsByFlag"]
+
+
 def test_unknown_symbol_is_an_error_only_in_checked_items():
     plan = spec_check.parse_plan(
         "- [x] has `Core`\n- [x] has `Missing`\n- [ ] has `Future`\n"
@@ -267,7 +276,9 @@ def test_end_to_end_fixture(tmp_path):
     src.mkdir(parents=True)
     (src / "pkg.py").write_text("class Core:\n    pass\n", encoding="utf-8")
     (spec / "index.md").write_text("---\nrepos: [r]\n---\n", encoding="utf-8")
-    (spec / "plan.md").write_text("- [x] `Core` is there\n", encoding="utf-8")
+    (spec / "plan.md").write_text(
+        "- [x] `Core` is there, tests/test_core.py\n", encoding="utf-8"
+    )
     (spec / "decisions.md").write_text(
         "## Действующие решения\n\n- **D1** — one\n\n## D1. one — 2026-11-03\n",
         encoding="utf-8",
@@ -276,11 +287,159 @@ def test_end_to_end_fixture(tmp_path):
     (spec / "todo.md").write_text("- [ ] one\n", encoding="utf-8")
 
     context = spec_check.load_context(spec, tmp_path)
-    assert spec_check.run_checks(context, with_tests=False) == []
+    assert spec_check.run_checks(context) == []
 
-    (spec / "plan.md").write_text("- [x] `Missing` is there\n", encoding="utf-8")
-    findings = spec_check.run_checks(context, with_tests=False)
+    (spec / "plan.md").write_text(
+        "- [x] `Missing` is there, tests/test_core.py\n", encoding="utf-8"
+    )
+    findings = spec_check.run_checks(context)
 
     assert [(finding.check, finding.level) for finding in findings] == [
         ("symbols", "error")
     ]
+
+
+def _cpp_spec(tmp_path: Path, plan: str, code_roots: str = "") -> Path:
+    """A spec over a C++ repository: Sources/ and Externals/, as in real projects."""
+    spec = tmp_path / "spec"
+    sources = tmp_path / "beta" / "Sources"
+    spec.mkdir()
+    sources.mkdir(parents=True)
+    (sources / "quote_engine.cpp").write_text(
+        "class QuoteEngine\n{\npublic:\n    void ResetFieldsByFlag();\n};\n",
+        encoding="utf-8",
+    )
+    (sources / "QuoteEngine.hpp").write_text(
+        "class QuoteEngine\n{\n    void ResetFieldsByFlag();\n};\n", encoding="utf-8"
+    )
+    front = "---\nrepos: [beta]\n" + (f"code_roots: [{code_roots}]\n" if code_roots else "")
+    (spec / "index.md").write_text(front + "---\n", encoding="utf-8")
+    (spec / "plan.md").write_text(plan, encoding="utf-8")
+    return spec
+
+
+def test_cpp_names_resolve_against_cpp_files(tmp_path):
+    spec = _cpp_spec(
+        tmp_path,
+        "- [x] `QuoteEngine` and `ntpro::dto::QuoteEngine` and `ResetFieldsByFlag()` "
+        "in `Sources/quote_engine.cpp`, tests/test_engine.cpp\n",
+    )
+
+    context = spec_check.load_context(spec, tmp_path)
+
+    assert spec_check.run_checks(context) == []
+
+
+def test_stale_cpp_name_is_an_error(tmp_path):
+    spec = _cpp_spec(
+        tmp_path,
+        "- [x] `QuoteEnginee` in `Sources/quote_engine.cpp`, tests/test_engine.cpp\n",
+    )
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert [(finding.check, finding.level, finding.where) for finding in findings] == [
+        ("symbols", "error", "plan.md:1")
+    ]
+    assert "QuoteEnginee" in findings[0].message
+
+
+def test_vendor_and_build_trees_are_not_code(tmp_path):
+    spec = _cpp_spec(
+        tmp_path,
+        "- [x] `VendorOnly` in `Sources/quote_engine.cpp`, tests/test_engine.cpp\n",
+    )
+    for directory in ("Externals", "build"):
+        path = tmp_path / "beta" / directory
+        path.mkdir()
+        (path / "third_party.cpp").write_text("class VendorOnly {};\n", encoding="utf-8")
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert [(finding.check, finding.level) for finding in findings] == [
+        ("symbols", "error")
+    ]
+
+
+def test_code_roots_narrow_the_code_that_is_read(tmp_path):
+    spec = _cpp_spec(
+        tmp_path,
+        "- [x] `Elsewhere` in `Sources/quote_engine.cpp`, tests/test_engine.cpp\n",
+        code_roots="beta/Sources",
+    )
+    elsewhere = tmp_path / "beta" / "SystemTests"
+    elsewhere.mkdir()
+    (elsewhere / "helper.cpp").write_text("class Elsewhere {};\n", encoding="utf-8")
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert [(finding.check, finding.level) for finding in findings] == [
+        ("symbols", "error")
+    ]
+
+
+def test_stage_checkboxes_are_checked_like_plan_items(tmp_path):
+    spec = _cpp_spec(tmp_path, "# План\n\n- [ ] Позже.\n")
+    stages = spec / "stages"
+    stages.mkdir()
+    (stages / "01-prototype.md").write_text(
+        "# Этап 1\n\n- [x] `QuoteEngine` in `Sources/quote_engine.cpp`\n"
+        "- [x] `Ghost` in `Sources/quote_engine.cpp`\n"
+        "- [x] Вопрос решён без ссылок\n",
+        encoding="utf-8",
+    )
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert [(finding.check, finding.level, finding.where) for finding in findings] == [
+        ("symbols", "error", "stages/01-prototype.md:4")
+    ]
+
+
+def test_checked_item_without_a_commit_or_a_test_warns(tmp_path):
+    spec = _cpp_spec(
+        tmp_path,
+        "- [x] `QuoteEngine` готов\n"
+        "- [x] `QuoteEngine` готов, `tests/test_engine.cpp`\n",
+    )
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert [(finding.check, finding.level, finding.where) for finding in findings] == [
+        ("evidence", "warn", "plan.md:1")
+    ]
+
+
+def test_cpp_file_refs_check_bounds(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "quote_engine.cpp").write_text("one\ntwo\n", encoding="utf-8")
+
+    documents = [
+        (
+            "plan.md",
+            "`src/quote_engine.cpp:2` ok, `src/quote_engine.cpp:99` past the end",
+        )
+    ]
+
+    index = spec_check.index_files([tmp_path / "src"])
+    findings = spec_check.check_file_refs(documents, index)
+
+    assert [(finding.check, finding.level) for finding in findings] == [("paths", "warn")]
+    assert "past the end" in findings[0].message
+
+
+def test_cpp_shortcut_markers_are_read(tmp_path):
+    spec = _cpp_spec(tmp_path, "")
+    source = tmp_path / "beta" / "Sources" / "legacy.cpp"
+    source.write_text(
+        "// shortcut: only plain http is tunnelled. Revisit with P5.\n"
+        "// shortcut: keeps everything in memory\n",
+        encoding="utf-8",
+    )
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert [finding.message for finding in findings] == [
+        "shortcut states no limit or no return condition"
+    ]
+    assert findings[0].where.endswith("legacy.cpp:2")

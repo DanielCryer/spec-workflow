@@ -7,23 +7,34 @@ feature is worth having; that is the review role.
 Checks:
 
 - ``symbols``   a checked plan item names a class or attribute that does not
-  exist in the code (a stale name after a rename);
+  exist in the code (a stale name after a rename). Plan items are read from
+  ``plan.md`` and ``stages/*.md``; the code may be C, C++, Python, TypeScript or
+  QML;
+- ``evidence``  a checked item of ``plan.md`` names neither a commit nor a test
+  file, so nothing backs the tick. Stage files are exempt: they may tick
+  resolved questions;
 - ``commits``   every ``repo@hash`` and bare ``@hash`` resolves to a commit;
-- ``paths``     every ``file.py:NN`` reference points inside an existing file;
+- ``paths``     every ``file.ext:NN`` reference points inside an existing file;
 - ``numbering`` decision and problem numbers are unique, the decision index
   lists every record exactly once, and every ``D<n>``/``P<n>`` mentioned in the
   folder exists. The index may be a line per decision or a thematic digest that
   names the numbers; ``--index`` sets how strict that check is;
 - ``shortcuts`` every ``shortcut:`` marker states a limit and a return
   condition;
-- ``todo``      ``todo.md`` stays under the cap;
-- ``tests``     the repositories' own test suites pass.
+- ``todo``      ``todo.md`` stays under the cap.
+
+The gate never runs the tests: running them is the executor's job, and the
+result is recorded in the step card. The gate only checks that a checked item
+claims a commit or a test at all.
 
 The spec folder is the input. Repository paths come from the ``repos:`` field of
 ``index.md`` and the convention ``<projects-root>/<name>``; an entry may be a
 path, so submodules work as ``<name>=<path>`` or ``sub/module`` (the name is the
-last segment); ``ref_roots:`` adds extra locations for ``file.py:NN`` references
-outside the repositories.
+last segment); ``ref_roots:`` adds extra locations for ``file.ext:NN`` references
+outside the repositories. ``code_roots:`` narrows where names and markers are
+looked up (paths are relative to ``<projects-root>``, e.g. ``beta/Sources``);
+without it the gate reads ``src``/``tests`` of a repository, or the whole
+repository. Vendor and build directories are never read.
 
 ``<projects-root>`` is ``PROJECTS_ROOT``, else the parent of ``SPECS_ROOT``,
 else ``~/projects``.
@@ -32,7 +43,7 @@ Usage:
 
     python3 scripts/spec_check.py --spec <SPECS_ROOT>/tasks/<folder>
     python3 scripts/spec_check.py --spec <folder> --strict
-    python3 scripts/spec_check.py --spec <folder> --no-tests --file-root <extra>
+    python3 scripts/spec_check.py --spec <folder> --file-root <extra>
     python3 scripts/spec_check.py --spec <folder> --index strict
 
 Errors fail the gate; warnings only fail it with ``--strict``. Exit code is 1
@@ -47,19 +58,46 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Iterator, Sequence
 
-_ARTIFACT_SUFFIXES = (
-    ".py", ".json", ".jsonl", ".md", ".toml", ".jsonc", ".txt", ".yml", ".yaml", ".sh",
+_CODE_SUFFIXES = (
+    ".c", ".cc", ".cpp", ".cxx", ".c++",
+    ".h", ".hh", ".hpp", ".hxx", ".h++",
+    ".inl", ".ipp", ".tpp",
+    ".py", ".pyi",
+    ".js", ".jsx", ".ts", ".tsx", ".qml", ".proto",
 )
 
+_ARTIFACT_SUFFIXES = (
+    ".json", ".jsonl", ".md", ".toml", ".jsonc", ".txt", ".yml", ".yaml", ".sh",
+)
+
+# A span with one of these suffixes is a path, not a symbol name.
+_FILE_SUFFIXES = tuple(dict.fromkeys(_ARTIFACT_SUFFIXES + _CODE_SUFFIXES))
+
+# Vendor and build trees are never read: a stale name must not be "found" there,
+# and indexing them is the slowest part of a large repository.
+_IGNORED_DIRS = frozenset(
+    {
+        ".git", ".hg", ".svn", ".idea", ".vscode", "__pycache__", ".pytest_cache",
+        ".venv", "venv", "node_modules",
+        "build", "Build", "cmake-build-debug", "cmake-build-release",
+        "Externals", "externals", "external", "third_party", "third-party",
+        "3rdparty", "vendor",
+    }
+)
+
+_EXTENSIONS = "|".join(
+    re.escape(suffix.lstrip(".")) for suffix in sorted(_FILE_SUFFIXES, key=len, reverse=True)
+)
 _ITEM = re.compile(r"^(\s*)- \[([ xX])\] (.*)$")
 _SPAN = re.compile(r"`([^`]+)`")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_DOTTED = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
+_TYPE_ARGS = re.compile(r"<[^<>]*>")
+_UPPERCASE = re.compile(r"[A-Z]")
 _COMMIT = re.compile(r"(?<![A-Za-z0-9_])(?:([A-Za-z][A-Za-z0-9_.-]*))?@([0-9a-f]{7,40})\b")
 _FILE_REF = re.compile(
-    r"(?P<path>[A-Za-z0-9_][\w./\\-]*\.(?:py|json|jsonl|md|toml|jsonc|ts|ps1))"
+    rf"(?P<path>[A-Za-z0-9_][\w./\\-]*\.(?:{_EXTENSIONS}))"
     r":(?P<start>\d+)(?:-(?P<end>\d+))?"
 )
 _DECISION = re.compile(r"^## (D)(\d+)\.", re.MULTILINE)
@@ -76,9 +114,9 @@ _ACTIVE_HEADING = re.compile(
     r"^##[ \t]+(?:Действующие решения|Active decisions)[ \t]*$", re.MULTILINE | re.IGNORECASE
 )
 _REFERENCE = re.compile(r"\b([DP])(\d{1,3})\b")
-_SHORTCUT = re.compile(r"shortcut:\s*(.+)", re.IGNORECASE)
-
-_PYTEST_MARKERS = ("pyproject.toml", "pytest.ini", "requirements-dev.txt", "tox.ini")
+_SHORTCUT = re.compile(r"(?:\*|//+|#)\s*shortcut:\s*(.+)", re.IGNORECASE)
+_PATH_TOKEN = re.compile(rf"[\w./\\-]+\.(?:{_EXTENSIONS})\b")
+_TEST_WORD = re.compile(r"\b[Tt]ests?\b|\bтест", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,43 +161,147 @@ def parse_plan(text: str) -> list[PlanItem]:
     return items
 
 
-def symbol_candidates(text: str) -> list[str]:
-    """Names in backticks that must exist in the code.
+def _iter_files(root: Path) -> Iterator[Path]:
+    """Files under ``root``, skipping vendor and build trees."""
+    if root.is_file():
+        yield root
+        return
+    if not root.is_dir():
+        return
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(os.scandir(current))
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    if entry.name in _IGNORED_DIRS:
+                        continue
+                    stack.append(Path(entry.path))
+                elif entry.is_file():
+                    yield Path(entry.path)
+            except OSError:
+                continue
 
-    Artifacts (``snapshot.json``), paths (``core.py``), endpoints and anything
-    with a separator are skipped: only class-like names and dotted attributes
-    are checked.
+
+@dataclass(slots=True)
+class SymbolIndex:
+    """Where a name may live: code files under the configured roots."""
+
+    roots: Sequence[Path]
+
+    def missing(self, names: Iterable[str]) -> set[str]:
+        """Names not found anywhere in the code; one pass over the files."""
+        wanted = {name: re.compile(rf"\b{re.escape(name)}\b") for name in names}
+        for path in self._files():
+            if not wanted:
+                break
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for name, pattern in tuple(wanted.items()):
+                if pattern.search(text):
+                    del wanted[name]
+        return set(wanted)
+
+    def _files(self) -> Iterator[Path]:
+        for root in _dedupe_roots(self.roots):
+            for path in _iter_files(root):
+                if path.suffix.lower() in _CODE_SUFFIXES:
+                    yield path
+
+
+def _symbol_name(span: str) -> str | None:
+    """The name a backticked span refers to, or ``None`` when it is not a symbol.
+
+    Paths and artifacts are skipped, prose words in lowercase are skipped (too
+    many false hits), and the C++/Python ways of writing a name are reduced to
+    its last segment: ``ntpro::dto::FieldMask`` -> ``FieldMask``,
+    ``FieldMask<T>`` -> ``FieldMask``, ``ResetFieldsByFlag()`` ->
+    ``ResetFieldsByFlag``, ``Event.to_record`` -> ``to_record``.
     """
+    span = span.strip()
+    if any(char in span for char in "/\\,→ \t"):
+        return None
+    if span.lower().endswith(_FILE_SUFFIXES):
+        return None
+    span = span.removesuffix("()")
+    span = _TYPE_ARGS.sub("", span)
+    span = span.split("::")[-1]
+    dotted = "." in span
+    span = span.rsplit(".", 1)[-1]
+    if not _IDENTIFIER.fullmatch(span):
+        return None
+    if dotted:
+        return span
+    if not _UPPERCASE.search(span):
+        return None
+    return span
+
+
+def symbol_candidates(text: str) -> list[str]:
+    """Names in backticks that must exist in the code."""
     names: list[str] = []
     for span in _SPAN.findall(text):
-        span = span.strip()
-        if any(char in span for char in "/() :→,"):
-            continue
-        if span.lower().endswith(_ARTIFACT_SUFFIXES):
-            continue
-        if _IDENTIFIER.fullmatch(span):
-            if re.search(r"[A-Z]", span):
-                names.append(span)
-        elif _DOTTED.fullmatch(span):
-            names.append(span.rsplit(".", 1)[1])
+        name = _symbol_name(span)
+        if name is not None and name not in names:
+            names.append(name)
     return names
 
 
-def check_plan_symbols(items: Sequence[PlanItem], corpus: str, where: str) -> list[Finding]:
+def _missing_names(names: Iterable[str], corpus: str | SymbolIndex) -> set[str]:
+    wanted = set(names)
+    if isinstance(corpus, str):
+        return {name for name in wanted if not re.search(rf"\b{re.escape(name)}\b", corpus)}
+    return corpus.missing(wanted)
+
+
+def check_plan_symbols(
+    items: Sequence[PlanItem], corpus: str | SymbolIndex, where: str
+) -> list[Finding]:
+    """Checked items may only name symbols that exist in the code."""
+    checked = [(item, symbol_candidates(item.text)) for item in items if item.checked]
+    missing = _missing_names(
+        (name for _, names in checked for name in names), corpus
+    )
+    findings: list[Finding] = []
+    for item, names in checked:
+        for name in names:
+            if name not in missing:
+                continue
+            findings.append(
+                Finding(
+                    "error",
+                    "symbols",
+                    f"{where}:{item.line}",
+                    f"checked item names `{name}`, which is not in the code",
+                )
+            )
+    return findings
+
+
+def check_plan_evidence(items: Sequence[PlanItem], where: str) -> list[Finding]:
+    """A checked item must claim something: a commit, a file or a test."""
     findings: list[Finding] = []
     for item in items:
         if not item.checked:
             continue
-        for name in symbol_candidates(item.text):
-            if not re.search(rf"\b{re.escape(name)}\b", corpus):
-                findings.append(
-                    Finding(
-                        "error",
-                        "symbols",
-                        f"{where}:{item.line}",
-                        f"checked item names `{name}`, which is not in the code",
-                    )
-                )
+        if _COMMIT.search(item.text) or _PATH_TOKEN.search(item.text):
+            continue
+        if _TEST_WORD.search(item.text):
+            continue
+        findings.append(
+            Finding(
+                "warn",
+                "evidence",
+                f"{where}:{item.line}",
+                "checked item names no commit and no test file",
+            )
+        )
     return findings
 
 
@@ -222,14 +364,7 @@ def _dedupe_roots(roots: Sequence[Path]) -> list[Path]:
 def index_files(roots: Sequence[Path]) -> dict[str, list[Path]]:
     index: dict[str, list[Path]] = {}
     for root in _dedupe_roots(roots):
-        if root.is_file():
-            index.setdefault(root.name, []).append(root)
-            continue
-        if not root.is_dir():
-            continue
-        for path in root.rglob("*"):
-            if not path.is_file() or ".git" in path.parts or "__pycache__" in path.parts:
-                continue
+        for path in _iter_files(root):
             index.setdefault(path.name, []).append(path)
     return index
 
@@ -387,11 +522,16 @@ def _join_comment(lines: Sequence[str], start: int) -> str:
     """Marker text: the marker line and up to two lines of its paragraph."""
     parts = []
     for line in lines[start : start + 3]:
-        stripped = line.strip().lstrip("#").strip()
+        stripped = _clean_comment(line)
         if not stripped:
             break
         parts.append(stripped)
     return " ".join(parts)
+
+
+def _clean_comment(line: str) -> str:
+    """Strip Python, C++ and block-comment decoration from one line."""
+    return line.strip().lstrip("/*").lstrip("#").strip().rstrip("*/").strip()
 
 
 def shortcut_complete(text: str) -> bool:
@@ -419,7 +559,7 @@ def shortcut_complete(text: str) -> bool:
 
 def _is_test_file(path: Path) -> bool:
     """Markers document production compromises; examples in tests are not markers."""
-    return "tests" in path.parts or path.name.startswith("test_")
+    return "tests" in path.parts or path.name.lower().startswith("test")
 
 
 def check_shortcuts(files: Iterable[Path], display) -> list[Finding]:
@@ -478,7 +618,12 @@ class Context:
             return path.as_posix()
 
     def spec_documents(self) -> list[tuple[str, str]]:
-        return [(path.name, read_text(path)) for path in sorted(self.spec.glob("*.md"))]
+        paths = sorted(self.spec.glob("*.md")) + sorted(self.spec.glob("stages/*.md"))
+        return [
+            (path.relative_to(self.spec).as_posix(), read_text(path))
+            for path in paths
+            if path.is_file()
+        ]
 
 
 def parse_frontmatter(text: str) -> dict[str, object]:
@@ -538,10 +683,18 @@ def load_context(
             continue
         repos[name] = Path(overrides.get(name) or (projects_root / relative)).resolve()
 
+    configured = _as_list(front.get("code_roots"))
     code_roots: list[Path] = []
-    for name, repo in repos.items():
-        subs = [repo / sub for sub in ("src", "tests") if (repo / sub).is_dir()]
-        code_roots.extend(subs or [repo])
+    if configured:
+        # Paths are relative to PROJECTS_ROOT, same as `repos:` (beta/Sources).
+        code_roots = [
+            Path(entry) if Path(entry).is_absolute() else projects_root / entry
+            for entry in configured
+        ]
+    else:
+        for repo in repos.values():
+            subs = [repo / sub for sub in ("src", "tests") if (repo / sub).is_dir()]
+            code_roots.extend(subs or [repo])
 
     file_roots = list(code_roots) + [spec.resolve()]
     for raw in _as_list(front.get("ref_roots")):
@@ -559,35 +712,31 @@ def load_context(
     )
 
 
-def _is_python_repo(repo: Path) -> bool:
-    return (repo / "tests").is_dir() and any((repo / marker).is_file() for marker in _PYTEST_MARKERS)
+def plan_documents(spec: Path) -> list[Path]:
+    """Where checked items live: ``plan.md`` and the stage files."""
+    paths: list[Path] = []
+    plan = spec / "plan.md"
+    if plan.is_file():
+        paths.append(plan)
+    paths.extend(sorted(path for path in (spec / "stages").glob("*.md") if path.is_file()))
+    return paths
 
 
-def run_checks(
-    context: Context,
-    *,
-    with_tests: bool = True,
-    python: str | None = None,
-    index_mode: str = "summary",
-) -> list[Finding]:
-    python = python or sys.executable
+def run_checks(context: Context, *, index_mode: str = "summary") -> list[Finding]:
     findings: list[Finding] = []
     documents = context.spec_documents()
+    symbols = SymbolIndex(context.code_roots)
 
-    plan_path = context.spec / "plan.md"
-    if plan_path.is_file():
-        corpus = "\n".join(
-            read_text(path)
-            for root in context.code_roots
-            if root.is_dir()
-            for path in root.rglob("*.py")
-        )
-        findings += check_plan_symbols(parse_plan(read_text(plan_path)), corpus, "plan.md")
+    for plan_path in plan_documents(context.spec):
+        where = plan_path.relative_to(context.spec).as_posix()
+        items = parse_plan(read_text(plan_path))
+        findings += check_plan_symbols(items, symbols, where)
+        if plan_path.name == "plan.md":
+            # Stage files may tick resolved questions; only the plan promises work.
+            findings += check_plan_evidence(items, where)
 
     findings += check_commit_refs(documents, context.repos, context.primary)
-
-    index = index_files(context.file_roots)
-    findings += check_file_refs(documents, index)
+    findings += check_file_refs(documents, index_files(context.file_roots))
 
     decisions = context.spec / "decisions.md"
     problems = context.spec / "problems.md"
@@ -599,32 +748,18 @@ def run_checks(
     )
 
     findings += check_shortcuts(
-        [path for root in context.code_roots if root.is_dir() for path in root.rglob("*.py")],
+        [
+            path
+            for root in context.code_roots
+            for path in _iter_files(root)
+            if path.suffix.lower() in _CODE_SUFFIXES
+        ],
         context.display,
     )
 
     todo = context.spec / "todo.md"
     if todo.is_file():
         findings += check_todo(read_text(todo), limit=15)
-
-    if with_tests:
-        for name, repo in context.repos.items():
-            if not _is_python_repo(repo):
-                continue
-            result = subprocess.run(
-                [python, "-m", "pytest", "-q"],
-                cwd=str(repo),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=600,
-            )
-            if result.returncode != 0:
-                tail = (result.stdout + result.stderr).strip().splitlines()[-6:]
-                findings.append(
-                    Finding("error", "tests", name, "suite is red: " + " / ".join(tail))
-                )
     return findings
 
 
@@ -661,12 +796,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         "active decisions section, default), strict (one '- **D<n>**' line per "
         "record) or off (do not check)",
     )
-    parser.add_argument("--no-tests", action="store_true", help="skip the test suites")
-    parser.add_argument(
-        "--python",
-        default=None,
-        help="python interpreter for pytest (default: the one running this script)",
-    )
     args = parser.parse_args(argv)
 
     if not args.spec.is_dir():
@@ -687,8 +816,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     findings = run_checks(
         context,
-        with_tests=not args.no_tests,
-        python=args.python,
         index_mode=args.index_mode,
     )
 

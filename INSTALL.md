@@ -68,10 +68,10 @@ Windows (PowerShell): `git clone https://github.com/DanielCryer/spec-workflow.gi
 
 ```sh
 python3 ~/src/spec-workflow/skills/spec-driven-development/scripts/spec_check.py \
-  --spec ~/src/spec-workflow/templates/specs-repo/tasks/_example --no-tests
+  --spec ~/src/spec-workflow/templates/specs-repo/tasks/_example
 ```
 
-Ожидаемо: `0 error(s)` и код возврата 0. На Windows: `py` вместо `python3`.
+Ожидаемо: `0 error(s)` и код возврата 0. На Windows: `py` вместо `python3`. Тесты гейт не запускает — для проверки установки достаточно Python 3, `pytest` не нужен.
 
 ### 3B. Режимы
 
@@ -119,7 +119,7 @@ rm -rf tasks/_example
 
 Репозитории кода, на которые ссылаются спеки, лежат рядом (`<PROJECTS_ROOT>/<name>`): по умолчанию `PROJECTS_ROOT` = родитель `SPECS_ROOT`. Нужно иначе — задай `PROJECTS_ROOT` отдельно.
 
-Проверка: `echo $SPECS_ROOT` (Windows: `$env:SPECS_ROOT`) выдаёт путь, гейт из 3A работает без `--no-tests`.
+Проверка: `echo $SPECS_ROOT` (Windows: `$env:SPECS_ROOT`) выдаёт путь, гейт из 3A проходит на реальной папке задачи.
 
 ### 3F. Первый прогон
 

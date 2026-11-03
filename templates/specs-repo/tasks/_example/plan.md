@@ -4,5 +4,5 @@
 
 ## Этап 1. Название
 
-- [ ] Первый пункт: что сделать и каким тестом подтверждается.
+- [ ] Первый пункт: `QuoteEngine::Start()` в `Sources/quote_engine.cpp`, тест `tests/quote_engine_test.cpp`.
 - [ ] Второй пункт.

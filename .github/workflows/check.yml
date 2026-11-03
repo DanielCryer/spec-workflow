@@ -22,6 +22,11 @@ jobs:
       - name: Docs links
         run: python3 scripts/check-links.py
 
+      - name: Gate on the template
+        run: |
+          python3 skills/spec-driven-development/scripts/spec_check.py \
+            --spec templates/specs-repo/tasks/_example --strict
+
       - name: Gate tests
         run: |
           python3 -m pip install --quiet pytest
