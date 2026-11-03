@@ -526,16 +526,27 @@ def check_numbering(
 # shortcuts and todo
 
 
-def _join_comment(lines: Sequence[str], start: int) -> str:
-    """Marker text: the marker line and up to two lines of its paragraph.
+_PARAGRAPH_LINES = 20
 
-    The paragraph ends at the next marker: two neighbouring shortcuts must not
-    lend each other a return condition.
+
+def _is_comment_line(line: str) -> bool:
+    """Whether the line is a comment continuation, not code or a string."""
+    stripped = line.lstrip()
+    return stripped.startswith(("#", "//", "/*", "*"))
+
+
+def _join_comment(lines: Sequence[str], start: int) -> str:
+    """Marker text: the marker line and the rest of its paragraph.
+
+    The paragraph runs to a blank line, to the next marker or to a non-comment
+    line: a neighbouring shortcut or a code line must not lend the marker a
+    return condition, and the text is not limited to the first lines.
     """
     parts = []
-    for offset, line in enumerate(lines[start : start + 3]):
-        if offset and _SHORTCUT.search(line):
-            break
+    for offset, line in enumerate(lines[start : start + _PARAGRAPH_LINES]):
+        if offset:
+            if _SHORTCUT.search(line) or not _is_comment_line(line):
+                break
         stripped = _clean_comment(line)
         if not stripped:
             break

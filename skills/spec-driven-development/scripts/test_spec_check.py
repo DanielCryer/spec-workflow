@@ -453,6 +453,34 @@ def test_shortcut_is_a_comment_marker_only(tmp_path):
     ]
 
 
+def test_shortcut_paragraph_is_read_to_its_end(tmp_path):
+    source = tmp_path / "long.cpp"
+    source.write_text(
+        "// shortcut: capped pagination;\n"
+        "// keeps the list in memory;\n"
+        "// fine for now;\n"
+        "// revisit when sessions grow past 10k\n",
+        encoding="utf-8",
+    )
+
+    assert spec_check.check_shortcuts([source], lambda path: path.name) == []
+
+
+def test_shortcut_does_not_borrow_a_condition_from_code(tmp_path):
+    source = tmp_path / "code.cpp"
+    source.write_text(
+        "// shortcut: only plain http\n"
+        "int b = 1; if (b) { b = 2; }\n",
+        encoding="utf-8",
+    )
+
+    findings = spec_check.check_shortcuts([source], lambda path: path.name)
+
+    assert [(finding.where, finding.message) for finding in findings] == [
+        ("code.cpp:1", "shortcut states no limit or no return condition")
+    ]
+
+
 def test_cpp_shortcut_markers_are_read(tmp_path):
     spec = _cpp_spec(tmp_path, "")
     source = tmp_path / "beta" / "Sources" / "legacy.cpp"
