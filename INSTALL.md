@@ -23,8 +23,6 @@ python3 --version    # на Windows: py --version
 
 OpenCode у получателя уже стоит. Целевой каталог конфигурации: `~/.config/opencode` (Windows: `%USERPROFILE%\.config\opencode`).
 
-Репозиторий библиотеки публичный: ни приглашения, ни токена не нужно, `git clone` работает как есть.
-
 ## 2. Обязательный минимум
 
 Клонировать библиотеку и подключить её как источник скиллов.
@@ -35,7 +33,7 @@ git clone https://github.com/DanielCryer/spec-workflow.git ~/src/spec-workflow
 
 Windows (PowerShell): `git clone https://github.com/DanielCryer/spec-workflow.git "$env:USERPROFILE\src\spec-workflow"`.
 
-Если нужна стабильная версия, а не текущий `master` — сразу после клона `git -C ~/src/spec-workflow checkout v0.2.2`. Обновление тогда будет осознанным: переключить тег и перечитать этот файл.
+Если нужна стабильная версия, а не текущий `master` — сразу после клона `git -C ~/src/spec-workflow checkout v0.2.3`. Обновление тогда будет осознанным: переключить тег и перечитать этот файл.
 
 Затем в `~/.config/opencode/opencode.jsonc` добавить запись — слить с существующим объектом, не заменять файл:
 
