@@ -113,6 +113,62 @@ def test_numbering_reports_duplicates_gaps_index_drift_and_dangling_refs():
     assert any("refers to D9" in message for message in messages)
 
 
+def test_thematic_summary_indexes_decisions_without_a_line_per_record():
+    decisions = (
+        "## Действующие решения\n\n"
+        "- **Маски и поля** — роли выражаются тегами (D1, D2, D3).\n"
+        "- **Совместимость** — новые поля только опциональные (D4).\n\n"
+        "## D1. one — 2026-11-03\n\n## D2. two — 2026-11-03\n\n"
+        "## D3. three — 2026-11-03\n\n## D4. four — 2026-11-03\n"
+    )
+
+    assert spec_check.check_numbering(decisions, "", []) == []
+
+    decisions += "\n## D5. five — 2026-11-03\n"
+    findings = spec_check.check_numbering(decisions, "", [])
+
+    assert [finding.message for finding in findings] == [
+        "D5 is missing from the active index"
+    ]
+
+
+def test_absorbed_records_need_no_summary_line():
+    decisions = (
+        "## Действующие решения\n\n- **Тема** — (D1)\n\n"
+        "## D1. one — 2026-11-03\n\n"
+        "## D2. two — влито в D1 — 2026-11-03\n\n- **Статус**: объединено с D1\n\n"
+        "## D3. three — 2026-11-03\n"
+    )
+
+    findings = spec_check.check_numbering(decisions, "", [])
+
+    assert spec_check.absorbed_decisions(decisions) == {2}
+    assert [finding.message for finding in findings] == [
+        "D3 is missing from the active index"
+    ]
+
+
+def test_index_mode_controls_how_strictly_the_summary_is_read():
+    decisions = (
+        "## Действующие решения\n\n- **Тема** — (D1, D2)\n\n"
+        "## D1. one — 2026-11-03\n\n## D2. two — 2026-11-03\n"
+    )
+
+    strict = spec_check.check_numbering(decisions, "", [], index_mode="strict")
+    assert sorted(finding.message for finding in strict) == [
+        "D1 is missing from the active index",
+        "D2 is missing from the active index",
+    ]
+
+    assert spec_check.check_numbering(decisions, "", [], index_mode="off") == []
+
+    without_summary = "## D1. one — 2026-11-03\n"
+    findings = spec_check.check_numbering(without_summary, "", [], index_mode="summary")
+
+    assert levels(findings) == ["warn"]
+    assert "no active decisions summary" in findings[0].message
+
+
 def test_shortcut_needs_a_return_condition():
     assert spec_check.shortcut_complete(
         "shortcut: rescans the journal; switch to an offset when the file grows past 10k"
@@ -150,6 +206,58 @@ def test_context_derives_repos_and_roots_from_index(tmp_path):
     assert context.primary == "r"
     assert (repo / "src").resolve() in context.code_roots
     assert (tmp_path / "proto").resolve() in context.file_roots
+
+
+def test_context_resolves_repo_paths_and_submodules(tmp_path):
+    spec = tmp_path / "spec"
+    (spec).mkdir()
+    (tmp_path / "beta" / "Sources" / "UiFramework" / "src").mkdir(parents=True)
+    (spec / "index.md").write_text(
+        "---\nrepos: [beta, beta/Sources/UiFramework, Alias=beta/Sources/UiFramework]\n---\n",
+        encoding="utf-8",
+    )
+
+    context = spec_check.load_context(spec, tmp_path)
+
+    assert context.repos == {
+        "beta": (tmp_path / "beta").resolve(),
+        "UiFramework": (tmp_path / "beta" / "Sources" / "UiFramework").resolve(),
+        "Alias": (tmp_path / "beta" / "Sources" / "UiFramework").resolve(),
+    }
+    assert context.primary == "beta"
+
+
+def _spec_dir(tmp_path: Path) -> Path:
+    spec = tmp_path / "spec"
+    spec.mkdir(exist_ok=True)
+    (spec / "index.md").write_text(
+        "---\nrepos: [beta, beta/Sources/UiFramework]\n---\n", encoding="utf-8"
+    )
+    return spec
+
+
+def test_commit_refs_resolve_in_a_submodule(tmp_path):
+    module = tmp_path / "beta" / "Sources" / "UiFramework"
+    module.mkdir(parents=True)
+    for command in (
+        ["git", "init", "-q"],
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-qm", "one"],
+    ):
+        subprocess.run(command, cwd=module, check=True, capture_output=True)
+    head = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=module,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    context = spec_check.load_context(_spec_dir(tmp_path), tmp_path)
+    findings = spec_check.check_commit_refs(
+        [("index.md", f"UiFramework@{head}")], context.repos, context.primary
+    )
+
+    assert findings == []
 
 
 def test_end_to_end_fixture(tmp_path):

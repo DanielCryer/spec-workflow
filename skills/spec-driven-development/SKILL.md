@@ -113,4 +113,6 @@ description: Use when the user explicitly asks to work in spec-driven mode (spec
 python3 <base>/scripts/spec_check.py --spec <SPECS_ROOT>/tasks/<папка>
 ```
 
-На Windows вместо `python3` подойдёт `py`. Скрипт берёт репозитории из `repos:` в `index.md` и ищет их под `PROJECTS_ROOT` (по умолчанию — родитель `SPECS_ROOT`, если он задан, иначе `~/projects`); переопределения: `--repo NAME=PATH`, `--projects-root`, `--file-root`, `--no-tests`, `--strict`, `--python`.
+На Windows вместо `python3` подойдёт `py`. Скрипт берёт репозитории из `repos:` в `index.md` и ищет их под `PROJECTS_ROOT` (по умолчанию — родитель `SPECS_ROOT`, если он задан, иначе `~/projects`); значение `repos:` — имя, путь к подмодулю или `имя=путь`. Переопределения: `--repo NAME=PATH`, `--projects-root`, `--file-root`, `--no-tests`, `--strict`, `--python`.
+
+Сводку решений гейт читает по смыслу: в блоке «Действующие решения» достаточно упоминания `D<n>` в любой форме — построчно или тематическим дайджестом; надгробия (`влито в D<n>`) в сводке не нужны. `--index strict` требует ровно строку `- **D<n>**` на запись, `--index off` выключает проверку индекса.

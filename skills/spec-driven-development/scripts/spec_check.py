@@ -12,15 +12,18 @@ Checks:
 - ``paths``     every ``file.py:NN`` reference points inside an existing file;
 - ``numbering`` decision and problem numbers are unique, the decision index
   lists every record exactly once, and every ``D<n>``/``P<n>`` mentioned in the
-  folder exists;
+  folder exists. The index may be a line per decision or a thematic digest that
+  names the numbers; ``--index`` sets how strict that check is;
 - ``shortcuts`` every ``shortcut:`` marker states a limit and a return
   condition;
 - ``todo``      ``todo.md`` stays under the cap;
 - ``tests``     the repositories' own test suites pass.
 
 The spec folder is the input. Repository paths come from the ``repos:`` field of
-``index.md`` and the convention ``<projects-root>/<name>``; ``ref_roots:`` adds
-extra locations for ``file.py:NN`` references outside the repositories.
+``index.md`` and the convention ``<projects-root>/<name>``; an entry may be a
+path, so submodules work as ``<name>=<path>`` or ``sub/module`` (the name is the
+last segment); ``ref_roots:`` adds extra locations for ``file.py:NN`` references
+outside the repositories.
 
 ``<projects-root>`` is ``PROJECTS_ROOT``, else the parent of ``SPECS_ROOT``,
 else ``~/projects``.
@@ -30,6 +33,7 @@ Usage:
     python3 scripts/spec_check.py --spec <SPECS_ROOT>/tasks/<folder>
     python3 scripts/spec_check.py --spec <folder> --strict
     python3 scripts/spec_check.py --spec <folder> --no-tests --file-root <extra>
+    python3 scripts/spec_check.py --spec <folder> --index strict
 
 Errors fail the gate; warnings only fail it with ``--strict``. Exit code is 1
 on failure, 0 otherwise.
@@ -60,7 +64,17 @@ _FILE_REF = re.compile(
 )
 _DECISION = re.compile(r"^## (D)(\d+)\.", re.MULTILINE)
 _PROBLEM = re.compile(r"^## (P)(\d+)\.", re.MULTILINE)
+_TOMBSTONE = re.compile(
+    r"\*\*Статус\*\*:?\s*(?:объединено|влито|поглощено|absorbed|merged)"
+    r"|—\s*влито в D\d+"
+    r"|absorbed into D\d+"
+    r"|merged into D\d+",
+    re.IGNORECASE,
+)
 _DECISION_INDEX = re.compile(r"^- \*\*(D)(\d+)\*\*", re.MULTILINE)
+_ACTIVE_HEADING = re.compile(
+    r"^##[ \t]+(?:Действующие решения|Active decisions)[ \t]*$", re.MULTILINE | re.IGNORECASE
+)
 _REFERENCE = re.compile(r"\b([DP])(\d{1,3})\b")
 _SHORTCUT = re.compile(r"shortcut:\s*(.+)", re.IGNORECASE)
 
@@ -269,8 +283,52 @@ def check_file_refs(
 # journal numbering
 
 
+def active_summary(decisions: str) -> str | None:
+    """Text of the active-decisions summary: from its heading to the next ``## ``.
+
+    The summary may be a line per decision or a thematic digest that names the
+    records in brackets; only the numbers matter, so the form is not fixed.
+    """
+    match = _ACTIVE_HEADING.search(decisions)
+    if match is None:
+        return None
+    rest = decisions[match.end() :]
+    following = re.search(r"^## ", rest, re.MULTILINE)
+    return rest[: following.start()] if following else rest
+
+
+def indexed_decisions(decisions: str, mode: str) -> tuple[set[int] | None, str | None]:
+    """Numbers the summary points at, plus a note when there is no summary.
+
+    ``mode`` is ``summary`` (numbers anywhere in the summary), ``strict`` (one
+    ``- **D<n>**`` line per record) or ``off``. ``None`` means "do not check".
+    """
+    if mode == "off":
+        return None, None
+    if mode == "strict":
+        return {int(number) for _, number in _DECISION_INDEX.findall(decisions)}, None
+    summary = active_summary(decisions)
+    if summary is None:
+        return None, "no active decisions summary, the index is not checked"
+    return {int(number) for kind, number in _REFERENCE.findall(summary) if kind == "D"}, None
+
+
+def absorbed_decisions(decisions: str) -> set[int]:
+    """Tombstones: records merged into another one, so the summary names the target."""
+    absorbed: set[int] = set()
+    headings = list(_DECISION.finditer(decisions))
+    for position, heading in enumerate(headings):
+        end = headings[position + 1].start() if position + 1 < len(headings) else len(decisions)
+        if _TOMBSTONE.search(decisions[heading.end() : end]):
+            absorbed.add(int(heading.group(2)))
+    return absorbed
+
+
 def check_numbering(
-    decisions: str, problems: str, mentioned: Iterable[tuple[str, str]]
+    decisions: str,
+    problems: str,
+    mentioned: Iterable[tuple[str, str]],
+    index_mode: str = "summary",
 ) -> list[Finding]:
     findings: list[Finding] = []
     declared: dict[str, set[int]] = {
@@ -293,15 +351,19 @@ def check_numbering(
                 Finding("warn", "numbering", source, f"{kind}{number} is missing from the sequence")
             )
 
-    listed = {int(number) for _, number in _DECISION_INDEX.findall(decisions)}
-    for number in sorted(listed - declared["D"]):
-        findings.append(
-            Finding("error", "numbering", "decisions.md", f"index lists D{number}, which has no record")
-        )
-    for number in sorted(declared["D"] - listed):
-        findings.append(
-            Finding("error", "numbering", "decisions.md", f"D{number} is missing from the active index")
-        )
+    listed, note = indexed_decisions(decisions, index_mode)
+    if note is not None and declared["D"]:
+        findings.append(Finding("warn", "numbering", "decisions.md", note))
+    if listed is not None:
+        absorbed = absorbed_decisions(decisions)
+        for number in sorted(listed - declared["D"]):
+            findings.append(
+                Finding("error", "numbering", "decisions.md", f"index lists D{number}, which has no record")
+            )
+        for number in sorted(declared["D"] - listed - absorbed):
+            findings.append(
+                Finding("error", "numbering", "decisions.md", f"D{number} is missing from the active index")
+            )
 
     for where, text in mentioned:
         for kind, number in _REFERENCE.findall(text):
@@ -463,9 +525,18 @@ def load_context(
     front = parse_frontmatter(read_text(index)) if index.is_file() else {}
 
     repo_names = _as_list(front.get("repos"))
-    repos = {}
-    for name in repo_names:
-        repos[name] = (overrides.get(name) or (projects_root / name)).resolve()
+    repos: dict[str, Path] = {}
+    for entry in repo_names:
+        # `<name>`, `<path>` (submodule: name is the last segment) or `<name>=<path>`.
+        raw_name, separator, raw_path = entry.partition("=")
+        if separator and raw_path.strip():
+            name, relative = raw_name.strip(), raw_path.strip()
+        else:
+            relative = entry.strip()
+            name = Path(relative).name
+        if not name or not relative:
+            continue
+        repos[name] = Path(overrides.get(name) or (projects_root / relative)).resolve()
 
     code_roots: list[Path] = []
     for name, repo in repos.items():
@@ -482,7 +553,7 @@ def load_context(
         projects_root=projects_root.resolve(),
         spec=spec.resolve(),
         repos=repos,
-        primary=repo_names[0] if repo_names else None,
+        primary=next(iter(repos), None),
         code_roots=_dedupe_roots(code_roots),
         file_roots=_dedupe_roots(file_roots),
     )
@@ -493,7 +564,11 @@ def _is_python_repo(repo: Path) -> bool:
 
 
 def run_checks(
-    context: Context, *, with_tests: bool = True, python: str | None = None
+    context: Context,
+    *,
+    with_tests: bool = True,
+    python: str | None = None,
+    index_mode: str = "summary",
 ) -> list[Finding]:
     python = python or sys.executable
     findings: list[Finding] = []
@@ -520,6 +595,7 @@ def run_checks(
         read_text(decisions) if decisions.is_file() else "",
         read_text(problems) if problems.is_file() else "",
         documents,
+        index_mode=index_mode,
     )
 
     findings += check_shortcuts(
@@ -576,6 +652,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--repo", action="append", default=[], metavar="NAME=PATH")
     parser.add_argument("--file-root", action="append", default=[], metavar="PATH")
     parser.add_argument("--strict", action="store_true", help="warnings fail the gate")
+    parser.add_argument(
+        "--index",
+        dest="index_mode",
+        choices=("summary", "strict", "off"),
+        default="summary",
+        help="how decisions.md must index its records: summary (any mention in the "
+        "active decisions section, default), strict (one '- **D<n>**' line per "
+        "record) or off (do not check)",
+    )
     parser.add_argument("--no-tests", action="store_true", help="skip the test suites")
     parser.add_argument(
         "--python",
@@ -600,7 +685,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         overrides=overrides,
         extra_roots=[Path(path) for path in args.file_root],
     )
-    findings = run_checks(context, with_tests=not args.no_tests, python=args.python)
+    findings = run_checks(
+        context,
+        with_tests=not args.no_tests,
+        python=args.python,
+        index_mode=args.index_mode,
+    )
 
     for finding in sorted(findings, key=lambda item: (item.level != "error", item.check, item.where)):
         print(finding.render())
