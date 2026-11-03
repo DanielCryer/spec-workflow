@@ -17,7 +17,7 @@ Skills for OpenCode that turn a large task into a worked spec and a controlled r
 Один шаг руками — клонировать репозиторий; дальше всё делает агент.
 
 ```sh
-git clone <repo-url> ~/src/spec-workflow
+git clone https://github.com/DanielCryer/spec-workflow.git ~/src/spec-workflow
 ```
 
 Затем попроси своего агента: «прочитай `~/src/spec-workflow/INSTALL.md` и примени разделы 2 и 3A» (или любые другие). `INSTALL.md` написан как инструкция агенту: границы, предусловия, независимые разделы, проверка, откат.

@@ -28,10 +28,10 @@ OpenCode у получателя уже стоит. Целевой катало�
 Клонировать библиотеку и подключить её как источник скиллов.
 
 ```sh
-git clone <repo-url> ~/src/spec-workflow
+git clone https://github.com/DanielCryer/spec-workflow.git ~/src/spec-workflow
 ```
 
-Windows (PowerShell): `git clone <repo-url> "$env:USERPROFILE\src\spec-workflow"`.
+Windows (PowerShell): `git clone https://github.com/DanielCryer/spec-workflow.git "$env:USERPROFILE\src\spec-workflow"`.
 
 Затем в `~/.config/opencode/opencode.jsonc` добавить запись — слить с существующим объектом, не заменять файл:
 
