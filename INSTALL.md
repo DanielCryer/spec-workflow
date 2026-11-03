@@ -23,6 +23,8 @@ python3 --version    # на Windows: py --version
 
 OpenCode у получателя уже стоит. Целевой каталог конфигурации: `~/.config/opencode` (Windows: `%USERPROFILE%\.config\opencode`).
 
+Репозиторий библиотеки публичный: ни приглашения, ни токена не нужно, `git clone` работает как есть.
+
 ## 2. Обязательный минимум
 
 Клонировать библиотеку и подключить её как источник скиллов.
@@ -32,6 +34,8 @@ git clone https://github.com/DanielCryer/spec-workflow.git ~/src/spec-workflow
 ```
 
 Windows (PowerShell): `git clone https://github.com/DanielCryer/spec-workflow.git "$env:USERPROFILE\src\spec-workflow"`.
+
+Если нужна стабильная версия, а не текущий `master` — сразу после клона `git -C ~/src/spec-workflow checkout v0.2.2`. Обновление тогда будет осознанным: переключить тег и перечитать этот файл.
 
 Затем в `~/.config/opencode/opencode.jsonc` добавить запись — слить с существующим объектом, не заменять файл:
 
@@ -56,6 +60,7 @@ Windows (PowerShell): `git clone https://github.com/DanielCryer/spec-workflow.gi
 | 3C | ревьюер: скилл `spec-review` + субагент `spec-reviewer` | 3B |
 | 3D | слэш-команды `/quick`, `/step`, `/run` | 3B |
 | 3E | шаблон репозитория спек + `SPECS_ROOT` | 3A |
+| 3F | первый прогон: демо-задача, зелёный и красный гейт, `BLOCKED` | 3A–3C |
 
 ### 3A. Спеки
 
@@ -109,12 +114,16 @@ rm -rf tasks/_example
 
 Корень репозитория спек задаётся переменной `SPECS_ROOT`:
 
-- Windows: `setx SPECS_ROOT "D:\projects\specs"` (для текущей сессии — ещё и `$env:SPECS_ROOT="D:\projects\specs"`).
-- Linux/macOS: строка `export SPECS_ROOT="$HOME/projects/specs"` в `~/.bashrc` или `~/.zshrc`.
+- Windows: `setx SPECS_ROOT "D:\projects\specs"`, затем **перезапустить приложение**: сервис читает окружение при старте, без перезапуска переменная не видна.
+- Linux/macOS: строка `export SPECS_ROOT="$HOME/projects/specs"` в `~/.bashrc` или `~/.zshrc` и новый терминал.
 
 Репозитории кода, на которые ссылаются спеки, лежат рядом (`<PROJECTS_ROOT>/<name>`): по умолчанию `PROJECTS_ROOT` = родитель `SPECS_ROOT`. Нужно иначе — задай `PROJECTS_ROOT` отдельно.
 
 Проверка: `echo $SPECS_ROOT` (Windows: `$env:SPECS_ROOT`) выдаёт путь, гейт из 3A работает без `--no-tests`.
+
+### 3F. Первый прогон
+
+После установки пройди `docs/first-run.md`: 20 минут, демо-репозиторий во временном каталоге, зелёный гейт, красный гейт, один `BLOCKED` от ревьюера. Это единственный способ убедиться, что всё работает вместе, а не по частям.
 
 ## 4. Отчёт
 
