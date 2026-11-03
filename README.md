@@ -51,7 +51,7 @@ https://raw.githubusercontent.com/DanielCryer/spec-workflow/master/INSTALL.md
 git clone https://github.com/DanielCryer/spec-workflow.git ~/src/spec-workflow
 ```
 
-Дальше попросить своего агента: «прочитай `~/src/spec-workflow/INSTALL.md` и примени разделы 2 и 3A». `INSTALL.md` написан как инструкция агенту: границы, предусловия, независимые разделы, проверка, откат. Ставить можно только нужные разделы; для стабильности — `git checkout v0.2.3` после клона.
+Дальше попросить своего агента: «прочитай `~/src/spec-workflow/INSTALL.md` и примени разделы 2 и 3A». `INSTALL.md` написан как инструкция агенту: границы, предусловия, независимые разделы, проверка, откат. Ставить можно только нужные разделы; для стабильности — работать по тегу, а не по `master` (номер подскажет `git -C ~/src/spec-workflow describe --tags --abbrev=0`).
 
 Требования: OpenCode (V2), `git`, Python 3 (для гейта).
 
