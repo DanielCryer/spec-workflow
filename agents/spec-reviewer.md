@@ -1,5 +1,5 @@
 ---
-description: Read-only review of a spec task against its code: plan claims, spec compliance, journal hygiene, and test quality. Returns PASS or BLOCKED with findings. Never edits.
+description: Read-only review of a spec task against its code — plan claims, spec compliance, journal hygiene, and test quality. Returns PASS or BLOCKED with findings. Never edits.
 mode: subagent
 permission:
   "*": deny

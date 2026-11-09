@@ -73,8 +73,9 @@ git clone https://github.com/DanielCryer/spec-workflow.git ~/src/spec-workflow
 ## Проверка репозитория
 
 ```sh
-python3 -m pytest skills/spec-driven-development/scripts -q
+python3 -m pytest skills/spec-driven-development/scripts scripts -q
 sh scripts/check-portability.sh
+python3 scripts/check-frontmatter.py
 python3 scripts/check-links.py
 python3 skills/spec-driven-development/scripts/spec_check.py \
   --spec templates/specs-repo/tasks/_example

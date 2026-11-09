@@ -1,6 +1,6 @@
 ---
 name: controlled-work
-description: Work modes for tasks run by a coordinator plus executor and reviewer subagents (quick, step, run): how the loop runs, when it pauses, what stops it, what the user sees. Use when the user asks to run a task autonomously ("запусти по плану", "по шагам", "step", "run") or asks about the work modes.
+description: Work modes for tasks run by a coordinator plus executor and reviewer subagents (quick, step, run) — how the loop runs, when it pauses, what stops it, what the user sees. Use when the user asks to run a task autonomously ("запусти по плану", "по шагам", "step", "run") or asks about the work modes.
 ---
 
 # Controlled work: quick / step / run

@@ -1,6 +1,6 @@
 ---
 name: spec-driven-development
-description: Use when the user explicitly asks to work in spec-driven mode (spec-driven, «по спекам», «заведи спеку», «ведём спеку»), or asks where the spec, plan, decisions or known problems for a task live. Covers a separate specs repository rooted at SPECS_ROOT: work-unit folders, stage epics, living decision and problem journals, sketch notes and work items, and linking specs to code commits. Opt-in: never apply to ordinary tasks unless the user asked.
+description: Use when the user explicitly asks to work in spec-driven mode (spec-driven, «по спекам», «заведи спеку», «ведём спеку»), or asks where the spec, plan, decisions or known problems for a task live. Covers a separate specs repository rooted at SPECS_ROOT — work-unit folders, stage epics, living decision and problem journals, sketch notes and work items, and linking specs to code commits. Opt-in — never apply to ordinary tasks unless the user asked.
 ---
 
 # Spec-driven: спеки, планы и журналы решений
