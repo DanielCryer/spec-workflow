@@ -76,10 +76,13 @@ git clone https://github.com/DanielCryer/spec-workflow.git ~/src/spec-workflow
 python3 -m pytest skills/spec-driven-development/scripts scripts -q
 sh scripts/check-portability.sh
 python3 scripts/check-frontmatter.py
+python3 scripts/check-release.py
 python3 scripts/check-links.py
 python3 skills/spec-driven-development/scripts/spec_check.py \
   --spec templates/specs-repo/tasks/_example
 ```
+
+Версия в шапке `CHANGELOG.md` и последний тег `vX.Y.Z` должны совпадать: `check-release.py` падает, если раздел написан, а тег забыт. В CI проверка идёт только на `push` — в PR версия поднимается раньше, чем появляется тег. Тег ставится аннотированный и пушится вместе с веткой: `git push origin master vX.Y.Z`.
 
 ## Лицензия
 
