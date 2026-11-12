@@ -68,9 +68,10 @@ Windows: `setx SPECS_ROOT "$env:USERPROFILE\projects\specs"`, затем **пе�
 
 ```markdown
 ---
-id: DEMO-1
+task: DEMO-1
+ids: [DEMO-1]
 kind: problem
-status: active
+status: in-progress
 mode: step
 repos: [demo-calc]
 ---

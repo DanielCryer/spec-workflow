@@ -10,9 +10,10 @@
 
 ```markdown
 ---
-id: BILL-42
+task: BILL-42
+ids: [BILL-42]
 kind: project
-status: active
+status: in-progress
 mode: step
 repos: [billing]
 ref_roots: []
@@ -34,7 +35,7 @@ aliases: []
 `TASKS.md` получает строку:
 
 ```markdown
-| [`BILL-42`](tasks/BILL-42/index.md) | BILL-42 | project | active | 2026-11-03 |
+| [`BILL-42`](tasks/BILL-42/index.md) | BILL-42 | project | in-progress | 2026-11-03 |
 ```
 
 Файлов, кроме `index.md`, пока нет — это lite-режим, и это нормально.

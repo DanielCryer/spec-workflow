@@ -1,9 +1,17 @@
 ---
-id: EXAMPLE-1
+task: EXAMPLE-1
+ids: [EXAMPLE-1]
 kind: project
-status: active
+parent:
+title: Пример одной единицы работы
+status: in-progress
 mode: step
+created: 2026-01-01
+updated: 2026-01-01
 repos: []
+branches: {}
+pr:
+tags: []
 code_roots: []
 ref_roots: []
 aliases: []
@@ -11,7 +19,7 @@ aliases: []
 
 # Пример: одна единица работы
 
-Этот каталог — образец. Скопируй его как `tasks/<папка>/`, замени значения на свои: `id`, `repos` (имена репозиториев, которые лежат рядом со спекой или под `PROJECTS_ROOT`; подмодуль пишется путём или с псевдонимом — `beta/Sources/UiFramework` или `UiFramework=beta/Sources/UiFramework`), `code_roots` (где гейт ищет имена — например `beta/Sources`; пусто — `src`/`tests` репозитория или он целиком), `mode`.
+Этот каталог — образец. Скопируй его как `tasks/<папка>/`, замени значения на свои: `task`/`ids`, `repos` (имена репозиториев, которые лежат рядом со спекой или под `PROJECTS_ROOT`; подмодуль пишется путём или с псевдонимом — `beta/Sources/UiFramework` или `UiFramework=beta/Sources/UiFramework`), `code_roots` (где гейт ищет имена — например `beta/Sources`; пусто — `src`/`tests` репозитория или он целиком), `mode`.
 
 ## Скоуп
 
