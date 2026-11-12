@@ -81,10 +81,10 @@ python3 ~/src/spec-workflow/skills/spec-driven-development/scripts/spec_check.py
 
 ```sh
 mkdir -p ~/.config/opencode/agents
-cp ~/src/spec-workflow/agents/spec-reviewer.md ~/.config/opencode/agents/
+ln -sf ~/src/spec-workflow/agents/spec-reviewer.md ~/.config/opencode/agents/spec-reviewer.md
 ```
 
-Windows: `mkdir` создаст каталог, копирование — `Copy-Item`.
+Симлинк держит агента в согласии с клоном: после обновления библиотеки копировать заново не нужно. Windows без прав на симлинки — `Copy-Item`, тогда повторять после каждого обновления.
 
 Проверка: субагент `spec-reviewer` запускается и умеет загрузить скилл `spec-review` при запрете на запись. Если субагент не видит скилл — не выдумывай обход, напиши об этом: значит, версия OpenCode не разрешает `skill` в правах агента.
 
@@ -92,9 +92,11 @@ Windows: `mkdir` создаст каталог, копирование — `Copy
 
 ```sh
 mkdir -p ~/.config/opencode/commands
-cp ~/src/spec-workflow/commands/quick.md ~/src/spec-workflow/commands/step.md \
+ln -sf ~/src/spec-workflow/commands/quick.md ~/src/spec-workflow/commands/step.md \
    ~/src/spec-workflow/commands/run.md ~/.config/opencode/commands/
 ```
+
+Симлинки не отстают от клона: правки в библиотеке действуют сразу. Windows без прав на симлинки — `Copy-Item` с повтором после каждого обновления.
 
 Не перезаписывай одноимённые файлы, которых нет в библиотеке, и не удаляй чужие команды.
 
@@ -131,6 +133,6 @@ rm -rf tasks/_example
 
 ## 5. Обновление и откат
 
-Обновление: `git -C ~/src/spec-workflow pull`, затем перечитать нужные разделы и применить заново — разделы идемпотентны, копирование перезаписывает файлы, запись в конфиге не дублируется.
+Обновление: `git -C ~/src/spec-workflow pull`. Скиллы читаются из клона, команды и агент подключены симлинками — правки действуют сразу, повторять разделы не нужно. Если ставили копированием (Windows без прав на симлинки), повтори разделы 3C и 3D.
 
-Откат любого раздела: удалить скопированные файлы (скиллы уезжают вместе с клоном), убрать строку `skills` из `opencode.jsonc` при полном удалении. `SPECS_ROOT` можно оставить: без библиотеки он ни на что не влияет.
+Откат любого раздела: удалить симлинки или скопированные файлы (скиллы уезжают вместе с клоном), убрать строку `skills` из `opencode.jsonc` при полном удалении. `SPECS_ROOT` можно оставить: без библиотеки он ни на что не влияет.
