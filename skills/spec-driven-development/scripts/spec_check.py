@@ -473,6 +473,7 @@ def check_numbering(
     mentioned: Iterable[tuple[str, str]],
     index_mode: str = "summary",
 ) -> list[Finding]:
+    """``problems`` is the live journal plus archived ones; numbers are unique across both."""
     findings: list[Finding] = []
     declared: dict[str, set[int]] = {
         "D": {int(number) for _, number in _DECISION.findall(decisions) or []},
@@ -747,6 +748,15 @@ def plan_documents(spec: Path) -> list[Path]:
     return paths
 
 
+def problem_journal(spec: Path) -> str:
+    """``problems.md`` plus ``archive/problems*.md``: numbers stay unique across both."""
+    paths = [spec / "problems.md"]
+    archive = spec / "archive"
+    if archive.is_dir():
+        paths.extend(sorted(archive.glob("problems*.md")))
+    return "\n".join(read_text(path) for path in paths if path.is_file())
+
+
 def run_checks(context: Context, *, index_mode: str = "summary") -> list[Finding]:
     findings: list[Finding] = []
     documents = context.spec_documents()
@@ -764,10 +774,10 @@ def run_checks(context: Context, *, index_mode: str = "summary") -> list[Finding
     findings += check_file_refs(documents, index_files(context.file_roots))
 
     decisions = context.spec / "decisions.md"
-    problems = context.spec / "problems.md"
+    problems = problem_journal(context.spec)
     findings += check_numbering(
         read_text(decisions) if decisions.is_file() else "",
-        read_text(problems) if problems.is_file() else "",
+        problems,
         documents,
         index_mode=index_mode,
     )

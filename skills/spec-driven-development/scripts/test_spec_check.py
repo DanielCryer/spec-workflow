@@ -496,3 +496,16 @@ def test_cpp_shortcut_markers_are_read(tmp_path):
         "shortcut states no limit or no return condition"
     ]
     assert findings[0].where.endswith("legacy.cpp:2")
+
+
+def test_problem_journal_reads_the_archive(tmp_path):
+    (tmp_path / "archive").mkdir()
+    (tmp_path / "problems.md").write_text("## P2. live — 2026-11-03\n", encoding="utf-8")
+    (tmp_path / "archive" / "problems.md").write_text(
+        "## P1. closed — 2026-11-03\n", encoding="utf-8"
+    )
+
+    journal = spec_check.problem_journal(tmp_path)
+    findings = spec_check.check_numbering("", journal, [("plan.md", "see P1")])
+
+    assert findings == []
