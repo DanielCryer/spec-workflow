@@ -8,17 +8,17 @@ Checks:
 
 - ``symbols``   a checked plan item names a class or attribute that does not
   exist in the code (a stale name after a rename). Plan items are read from
-  ``plan.md`` and ``stages/*.md``; the code may be C, C++, Python, TypeScript or
-  QML;
-- ``evidence``  a checked item of ``plan.md`` names neither a commit nor a test
-  file, so nothing backs the tick. Stage files are exempt: they may tick
-  resolved questions;
+  ``plan.md``, ``stages/*.md`` and ``stages/*/stage.md``; the code may be C, C++,
+  Python, TypeScript or QML;
 - ``commits``   every ``repo@hash`` and bare ``@hash`` resolves to a commit;
 - ``paths``     every ``file.ext:NN`` reference points inside an existing file;
-- ``numbering`` decision and problem numbers are unique, the decision index
-  lists every record exactly once, and every ``D<n>``/``P<n>`` mentioned in the
-  folder exists. The index may be a line per decision or a thematic digest that
-  names the numbers; ``--index`` sets how strict that check is;
+- ``numbering`` decision and problem numbers are unique in the task folder, a
+  stage journal always carries its stage code, every reference resolves to a
+  record or to a transfer, the root summary lists every root record, and — once
+  stage codes are in use — a moved record is named on both sides and
+  ``**Правило:**`` in a record matches ``Источники`` in ``rules/``. The index may
+  be a line per decision or a thematic digest that names the numbers;
+  ``--index`` sets how strict that check is;
 - ``shortcuts`` every ``shortcut:`` marker in a code comment states a limit and
   a return condition. Only comments count: a marker inside a string literal or
   a docstring is not a marker, and identifiers such as ``QShortcut::activated``
@@ -26,8 +26,7 @@ Checks:
 - ``todo``      ``todo.md`` stays under the cap.
 
 The gate never runs the tests: running them is the executor's job, and the
-result is recorded in the step card. The gate only checks that a checked item
-claims a commit or a test at all.
+result is recorded in the step card.
 
 The spec folder is the input. Repository paths come from the ``repos:`` field of
 ``index.md`` and the convention ``<projects-root>/<name>``; an entry may be a
@@ -102,26 +101,48 @@ _FILE_REF = re.compile(
     rf"(?P<path>[A-Za-z0-9_][\w./\\-]*\.(?:{_EXTENSIONS}))"
     r":(?P<start>\d+)(?:-(?P<end>\d+))?"
 )
-_DECISION = re.compile(r"^## (D)(\d+)\.", re.MULTILINE)
-_PROBLEM = re.compile(r"^## (P)(\d+)\.", re.MULTILINE)
+_TOKEN_TEXT = re.compile(r"([DP])(?:([a-z]{2,8})\.)?(\d{1,4})")
+_RECORD = re.compile(r"^## ([DP])(?:([a-z]{2,8})\.)?(\d{1,4})\.", re.MULTILINE)
 _TOMBSTONE = re.compile(
-    r"\*\*Статус\*\*:?\s*(?:объединено|влито|поглощено|absorbed|merged)"
-    r"|—\s*влито в D\d+"
-    r"|absorbed into D\d+"
-    r"|merged into D\d+",
+    r"\*\*\s*Статус:?\s*\*\*:?\s*(?:объединено|влито|поглощено|absorbed|merged)"
+    r"|—\s*влито в D\S+"
+    r"|absorbed into D\S+"
+    r"|merged into D\S+",
     re.IGNORECASE,
 )
-_DECISION_INDEX = re.compile(r"^- \*\*(D)(\d+)\*\*", re.MULTILINE)
+_DECISION_INDEX = re.compile(
+    r"^- \*\*(D(?:[a-z]{2,8}\.)?\d+)\*\*", re.MULTILINE
+)
 _ACTIVE_HEADING = re.compile(
     r"^##[ \t]+(?:Действующие решения|Active decisions)[ \t]*$", re.MULTILINE | re.IGNORECASE
 )
-_REFERENCE = re.compile(r"\b([DP])(\d{1,3})\b")
+_MOVED_HEADING = re.compile(
+    r"^##[ \t]+(?:Перенесено|Moved)[ \t]*$", re.MULTILINE | re.IGNORECASE
+)
+_SOURCES_HEADING = re.compile(
+    r"^##[ \t]+(?:Источники|Sources)[ \t]*$", re.MULTILINE | re.IGNORECASE
+)
+_REFERENCE = re.compile(r"\b([DP])(?:([a-z]{2,8})\.)?(\d{1,4})\b")
+_MOVED_LINE = re.compile(
+    r"^-[ \t]*([DP](?:[a-z]{2,8}\.)?\d+)[ \t]*→[ \t]*([DP](?:[a-z]{2,8}\.)?\d+)"
+    r"(?:[ \t]*(?:—|-)[ \t]*`?([^`\s]+)`?)?",
+    re.MULTILINE,
+)
+_BY_WAS = re.compile(
+    r"\*\*\s*Было:?\s*\*\*:?[ \t]*`?([DP](?:[a-z]{2,8}\.)?\d+)`?"
+)
+_RULE_REF = re.compile(
+    r"\*\*\s*Правило:?\s*\*\*:?[ \t]*`?([\w./-]+\.md)`?"
+)
+_CODE_DECL = re.compile(
+    r"\*\*\s*Код:?\s*\*\*:?[ \t]*`?([A-Za-z0-9_-]+)`?", re.MULTILINE
+)
+_CODE_TEXT = re.compile(r"[a-z]{2,8}")
+
 # A marker lives in a comment: `# shortcut:`, `// shortcut:`, `/* shortcut: */`.
 # Without the prefix, `QShortcut::activated` and strings like "shortcut: …"
 # would count as markers.
 _SHORTCUT = re.compile(r"(?:\*|//+|#)\s*shortcut:\s*(.+)", re.IGNORECASE)
-_PATH_TOKEN = re.compile(rf"[\w./\\-]+\.(?:{_EXTENSIONS})\b")
-_TEST_WORD = re.compile(r"\b[Tt]ests?\b|\bтест", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,27 +313,6 @@ def check_plan_symbols(
     return findings
 
 
-def check_plan_evidence(items: Sequence[PlanItem], where: str) -> list[Finding]:
-    """A checked item must claim something: a commit, a file or a test."""
-    findings: list[Finding] = []
-    for item in items:
-        if not item.checked:
-            continue
-        if _COMMIT.search(item.text) or _PATH_TOKEN.search(item.text):
-            continue
-        if _TEST_WORD.search(item.text):
-            continue
-        findings.append(
-            Finding(
-                "warn",
-                "evidence",
-                f"{where}:{item.line}",
-                "checked item names no commit and no test file",
-            )
-        )
-    return findings
-
-
 # --------------------------------------------------------------------------
 # references
 
@@ -423,7 +423,57 @@ def check_file_refs(
 
 
 # --------------------------------------------------------------------------
-# journal numbering
+# journals
+
+
+@dataclass(frozen=True, slots=True)
+class Token:
+    """A decision or problem number: ``D7`` in the root, ``Dtc.3`` on a stage."""
+
+    kind: str      # "D" or "P"
+    code: str      # "" for the root journal
+    number: int
+
+    @property
+    def text(self) -> str:
+        return f"{self.kind}{self.code}{'.' if self.code else ''}{self.number}"
+
+
+@dataclass(slots=True)
+class Journal:
+    """One journal file: its kind, the stage code it is scoped to, and its text."""
+
+    kind: str
+    code: str      # "" for the root, the stage code for a stage, "#archive" for history
+    path: str      # path relative to the spec folder
+    text: str
+
+
+def parse_token(text: str) -> Token | None:
+    match = _TOKEN_TEXT.fullmatch(text.strip().strip("`"))
+    if match is None:
+        return None
+    kind, code, number = match.groups()
+    return Token(kind, code or "", int(number))
+
+
+def tokens_in(text: str) -> set[Token]:
+    """Every number mentioned in a piece of text."""
+    return {
+        Token(kind, code or "", int(number))
+        for kind, code, number in _REFERENCE.findall(text)
+    }
+
+
+def record_spans(text: str, kind: str) -> list[tuple[Token, str]]:
+    """Records of one journal: heading token and the body that follows it."""
+    matches = [match for match in _RECORD.finditer(text) if match.group(1) == kind]
+    spans: list[tuple[Token, str]] = []
+    for position, match in enumerate(matches):
+        end = matches[position + 1].start() if position + 1 < len(matches) else len(text)
+        token = Token(kind, match.group(2) or "", int(match.group(3)))
+        spans.append((token, text[match.end() : end]))
+    return spans
 
 
 def active_summary(decisions: str) -> str | None:
@@ -440,6 +490,16 @@ def active_summary(decisions: str) -> str | None:
     return rest[: following.start()] if following else rest
 
 
+def section(text: str, heading: re.Pattern[str]) -> str | None:
+    """Body of a section, from its heading to the next ``## ``."""
+    match = heading.search(text)
+    if match is None:
+        return None
+    rest = text[match.end() :]
+    following = re.search(r"^## ", rest, re.MULTILINE)
+    return rest[: following.start()] if following else rest
+
+
 def indexed_decisions(decisions: str, mode: str) -> tuple[set[int] | None, str | None]:
     """Numbers the summary points at, plus a note when there is no summary.
 
@@ -449,22 +509,311 @@ def indexed_decisions(decisions: str, mode: str) -> tuple[set[int] | None, str |
     if mode == "off":
         return None, None
     if mode == "strict":
-        return {int(number) for _, number in _DECISION_INDEX.findall(decisions)}, None
+        tokens = (parse_token(match) for match in _DECISION_INDEX.findall(decisions))
+        return {token.number for token in tokens if token and not token.code}, None
     summary = active_summary(decisions)
     if summary is None:
         return None, "no active decisions summary, the index is not checked"
-    return {int(number) for kind, number in _REFERENCE.findall(summary) if kind == "D"}, None
+    # The root summary indexes root records only: a coded number here is a
+    # stage record and is checked against its own journal.
+    return {
+        token.number
+        for token in tokens_in(summary)
+        if token.kind == "D" and not token.code
+    }, None
 
 
 def absorbed_decisions(decisions: str) -> set[int]:
     """Tombstones: records merged into another one, so the summary names the target."""
-    absorbed: set[int] = set()
-    headings = list(_DECISION.finditer(decisions))
-    for position, heading in enumerate(headings):
-        end = headings[position + 1].start() if position + 1 < len(headings) else len(decisions)
-        if _TOMBSTONE.search(decisions[heading.end() : end]):
-            absorbed.add(int(heading.group(2)))
-    return absorbed
+    return {
+        token.number
+        for token, body in record_spans(decisions, "D")
+        if _TOMBSTONE.search(body)
+    }
+
+
+def check_journal_numbering(
+    journals: Sequence[Journal],
+    index_mode: str = "summary",
+) -> list[Finding]:
+    """Numbers are unique per task folder; a stage journal carries its stage code."""
+    findings: list[Finding] = []
+    seen: dict[str, str] = {}
+    groups: dict[tuple[str, str], list[int]] = {}
+    group_where: dict[tuple[str, str], str] = {}
+    retired = {(token.kind, token.code, token.number) for token in moved_tokens(journals)}
+    for journal in journals:
+        for token, _body in record_spans(journal.text, journal.kind):
+            if journal.code == "" and token.code:
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        journal.path,
+                        f"{token.text} carries a stage code, the root journal keeps bare numbers",
+                    )
+                )
+            elif journal.code not in ("", "#archive") and token.code != journal.code:
+                expected = f"{journal.kind}{journal.code}.{token.number}"
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        journal.path,
+                        f"{token.text} must be written {expected}: a stage journal always carries its code",
+                    )
+                )
+            if token.text in seen:
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        journal.path,
+                        f"{token.text} is declared twice ({seen[token.text]})",
+                    )
+                )
+            else:
+                seen[token.text] = journal.path
+            scope_matches = (
+                token.code == journal.code
+                if journal.code not in ("", "#archive")
+                else (journal.code == "#archive" or not token.code)
+            )
+            if scope_matches:
+                group = (journal.kind, token.code)
+                groups.setdefault(group, []).append(token.number)
+                group_where.setdefault(group, journal.path)
+
+    # The archive keeps the numbers a record arrived with, so a gap is counted
+    # across the live journal and the archive of the same scope.
+    for (kind, code), numbers in sorted(groups.items()):
+        # A number that moved out is not missing, and it does not extend the
+        # range: the counter is judged by the records that still live there.
+        retired_here = {
+            number for kind_, code_, number in retired if (kind_, code_) == (kind, code)
+        }
+        gaps = sorted(
+            set(range(1, max(numbers, default=0) + 1)) - set(numbers) - retired_here
+        )
+        prefix = f"{kind}{code}{'.' if code else ''}"
+        for number in gaps:
+            findings.append(
+                Finding(
+                    "warn",
+                    "numbering",
+                    group_where[(kind, code)],
+                    f"{prefix}{number} is missing from the sequence",
+                )
+            )
+
+    root = next(
+        (journal for journal in journals if journal.kind == "D" and journal.code == ""),
+        None,
+    )
+    if root is None:
+        return findings
+    listed, note = indexed_decisions(root.text, index_mode)
+    declared_root = {
+        token.number for token, _ in record_spans(root.text, "D")
+    }
+    if note is not None and declared_root:
+        findings.append(Finding("warn", "numbering", root.path, note))
+    if listed is not None:
+        absorbed = absorbed_decisions(root.text)
+        for number in sorted(listed - declared_root):
+            findings.append(
+                Finding(
+                    "error",
+                    "numbering",
+                    root.path,
+                    f"index lists D{number}, which has no record",
+                )
+            )
+        for number in sorted(declared_root - listed - absorbed):
+            findings.append(
+                Finding(
+                    "error",
+                    "numbering",
+                    root.path,
+                    f"D{number} is missing from the active index",
+                )
+            )
+    return findings
+
+
+def check_references(
+    documents: Iterable[tuple[str, str]],
+    journals: Sequence[Journal],
+    moved: Iterable[Token] = (),
+) -> list[Finding]:
+    """Every number mentioned in the folder resolves to a record or a transfer."""
+    declared = {
+        token
+        for journal in journals
+        for token, _ in record_spans(journal.text, journal.kind)
+    }
+    allowed = declared | set(moved)
+    findings: list[Finding] = []
+    for where, text in documents:
+        for token in sorted(tokens_in(text), key=lambda item: item.text):
+            if token not in allowed:
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        where,
+                        f"refers to {token.text}, which is not declared",
+                    )
+                )
+    return findings
+
+
+def transfer_lines(journal: Journal) -> list[tuple[Token, Token, str | None]]:
+    """Transfers written in a journal: the old token, the new one, the target path.
+
+    The path is omitted when the record moved to the root journal.
+    """
+    body = section(journal.text, _MOVED_HEADING)
+    if not body:
+        return []
+    lines: list[tuple[Token, Token, str | None]] = []
+    for old_text, new_text, path in _MOVED_LINE.findall(body):
+        old, new = parse_token(old_text), parse_token(new_text)
+        if old is None or new is None:
+            continue
+        target = path.strip().strip("`").rstrip(".,;") if path else ""
+        lines.append((old, new, target or None))
+    return lines
+
+
+def moved_tokens(journals: Sequence[Journal]) -> set[Token]:
+    """Old numbers named in a transfer section, wherever the section lives."""
+    return {
+        old
+        for journal in journals
+        for old, _new, _path in transfer_lines(journal)
+    }
+
+
+def check_transfers(journals: Sequence[Journal]) -> list[Finding]:
+    """A moved record and its old number are named on both sides."""
+    findings: list[Finding] = []
+    roots = {
+        journal.kind: journal for journal in journals if journal.code == ""
+    }
+    by_path = {journal.path: journal for journal in journals}
+    pairs: dict[str, str] = {}
+    for journal in journals:
+        for old, new, path in transfer_lines(journal):
+            target = by_path.get(path) if path else roots.get(new.kind)
+            if target is None:
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        journal.path,
+                        f"transfer {old.text} → {new.text} points to "
+                        f"{path or 'the root journal'}, which does not exist",
+                    )
+                )
+                continue
+            pairs[old.text] = new.text
+            records = {
+                token.text: body for token, body in record_spans(target.text, target.kind)
+            }
+            if new.text not in records:
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        target.path,
+                        f"transfer {old.text} → {new.text} names a record that is not here",
+                    )
+                )
+                continue
+            was = _BY_WAS.search(records[new.text])
+            if was is None or was.group(1) != old.text:
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        target.path,
+                        f"{new.text} has no '**Было:** {old.text}' line",
+                    )
+                )
+
+    for journal in journals:
+        for token, body_text in record_spans(journal.text, journal.kind):
+            was = _BY_WAS.search(body_text)
+            if was is None:
+                continue
+            if pairs.get(was.group(1)) != token.text:
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        journal.path,
+                        f"{token.text} says it was moved from {was.group(1)}, "
+                        "but no transfer line says so",
+                    )
+                )
+    return findings
+
+
+def check_rules_links(journals: Sequence[Journal], spec: Path) -> list[Finding]:
+    """``**Правило:**`` in a record and ``Источники`` in ``rules/`` point at each other."""
+    findings: list[Finding] = []
+    named: dict[str, set[str]] = {}
+    for journal in journals:
+        for token, body in record_spans(journal.text, journal.kind):
+            match = _RULE_REF.search(body)
+            if match is None:
+                continue
+            rule = match.group(1)
+            named.setdefault(rule, set()).add(token.text)
+            if not (spec / rule).is_file():
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        journal.path,
+                        f"{token.text} names {rule}, which does not exist",
+                    )
+                )
+
+    for rule, tokens in sorted(named.items()):
+        path = spec / rule
+        if not path.is_file():
+            continue
+        sources = section(read_text(path), _SOURCES_HEADING)
+        listed = {token.text for token in tokens_in(sources or "")}
+        for token in sorted(tokens - listed):
+            findings.append(
+                Finding(
+                    "error",
+                    "numbering",
+                    rule,
+                    f"{token} names this rule, but it is not listed in Источники",
+                )
+            )
+
+    rules_dir = spec / "rules"
+    if rules_dir.is_dir():
+        for path in sorted(rules_dir.glob("*.md")):
+            relative = f"rules/{path.name}"
+            sources = section(read_text(path), _SOURCES_HEADING)
+            for token in sorted(tokens_in(sources or ""), key=lambda item: item.text):
+                if token.text in named.get(relative, set()):
+                    continue
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        relative,
+                        f"Источники list {token.text}, but the record does not name this rule",
+                    )
+                )
+    return findings
 
 
 def check_numbering(
@@ -473,54 +822,16 @@ def check_numbering(
     mentioned: Iterable[tuple[str, str]],
     index_mode: str = "summary",
 ) -> list[Finding]:
-    """``problems`` is the live journal plus archived ones; numbers are unique across both."""
-    findings: list[Finding] = []
-    declared: dict[str, set[int]] = {
-        "D": {int(number) for _, number in _DECISION.findall(decisions) or []},
-        "P": {int(number) for _, number in _PROBLEM.findall(problems) or []},
-    }
-    for kind, text, source in (("D", decisions, "decisions.md"), ("P", problems, "problems.md")):
-        numbers = [
-            int(number)
-            for number in re.findall(rf"^## {kind}(\d+)\.", text, re.MULTILINE)
-        ]
-        duplicates = sorted({number for number in numbers if numbers.count(number) > 1})
-        for number in duplicates:
-            findings.append(
-                Finding("error", "numbering", source, f"{kind}{number} is declared twice")
-            )
-        gaps = sorted(set(range(1, max(numbers, default=0) + 1)) - set(numbers))
-        for number in gaps:
-            findings.append(
-                Finding("warn", "numbering", source, f"{kind}{number} is missing from the sequence")
-            )
-
-    listed, note = indexed_decisions(decisions, index_mode)
-    if note is not None and declared["D"]:
-        findings.append(Finding("warn", "numbering", "decisions.md", note))
-    if listed is not None:
-        absorbed = absorbed_decisions(decisions)
-        for number in sorted(listed - declared["D"]):
-            findings.append(
-                Finding("error", "numbering", "decisions.md", f"index lists D{number}, which has no record")
-            )
-        for number in sorted(declared["D"] - listed - absorbed):
-            findings.append(
-                Finding("error", "numbering", "decisions.md", f"D{number} is missing from the active index")
-            )
-
-    for where, text in mentioned:
-        for kind, number in _REFERENCE.findall(text):
-            if int(number) not in declared[kind]:
-                findings.append(
-                    Finding(
-                        "error",
-                        "numbering",
-                        where,
-                        f"refers to {kind}{number}, which is not declared",
-                    )
-                )
+    """Both journals of a bare-numbered task folder: numbers are unique across both."""
+    journals = []
+    if decisions:
+        journals.append(Journal("D", "", "decisions.md", decisions))
+    if problems:
+        journals.append(Journal("P", "", "problems.md", problems))
+    findings = check_journal_numbering(journals, index_mode)
+    findings += check_references(mentioned, journals)
     return findings
+
 
 
 # --------------------------------------------------------------------------
@@ -647,6 +958,7 @@ class Context:
         paths = (
             sorted(self.spec.glob("*.md"))
             + sorted(self.spec.glob("stages/*.md"))
+            + sorted(self.spec.glob("stages/*/*.md"))
             + sorted(self.spec.glob("rules/*.md"))
         )
         return [
@@ -743,22 +1055,109 @@ def load_context(
 
 
 def plan_documents(spec: Path) -> list[Path]:
-    """Where checked items live: ``plan.md`` and the stage files."""
+    """Where checked items live: ``plan.md`` and the stage cards."""
     paths: list[Path] = []
     plan = spec / "plan.md"
     if plan.is_file():
         paths.append(plan)
     paths.extend(sorted(path for path in (spec / "stages").glob("*.md") if path.is_file()))
+    paths.extend(
+        sorted(path for path in (spec / "stages").glob("*/stage.md") if path.is_file())
+    )
     return paths
 
 
-def problem_journal(spec: Path) -> str:
-    """``problems.md`` plus ``archive/problems*.md``: numbers stay unique across both."""
-    paths = [spec / "problems.md"]
+def stage_codes(spec: Path) -> tuple[dict[str, str], list[Finding]]:
+    """Stage folder → its code, plus what is wrong with the codes."""
+    codes: dict[str, str] = {}
+    findings: list[Finding] = []
+    stages = spec / "stages"
+    if not stages.is_dir():
+        return codes, findings
+    for folder in sorted(path for path in stages.iterdir() if path.is_dir()):
+        relative = folder.relative_to(spec).as_posix()
+        card = folder / "stage.md"
+        has_journal = any((folder / name).is_file() for name in ("decisions.md", "problems.md"))
+        if not card.is_file():
+            if has_journal:
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        relative,
+                        "stage folder has journals but no stage.md with a code",
+                    )
+                )
+            continue
+        match = _CODE_DECL.search(read_text(card))
+        code = match.group(1).strip("`") if match else ""
+        if not code:
+            if has_journal:
+                findings.append(
+                    Finding(
+                        "error",
+                        "numbering",
+                        f"{relative}/stage.md",
+                        "stage journals need a code: add '**Код:** <code>' to the card",
+                    )
+                )
+            continue
+        if not _CODE_TEXT.fullmatch(code):
+            findings.append(
+                Finding(
+                    "error",
+                    "numbering",
+                    f"{relative}/stage.md",
+                    f"code `{code}` must be 2-8 lowercase latin letters",
+                )
+            )
+        if code in codes.values():
+            findings.append(
+                Finding(
+                    "error",
+                    "numbering",
+                    f"{relative}/stage.md",
+                    f"code `{code}` is already used by another stage",
+                )
+            )
+        codes[relative] = code
+    return codes, findings
+
+
+def collect_journals(spec: Path) -> tuple[list[Journal], list[Finding]]:
+    """Every journal of the task folder: root, stage and the problem archive."""
+    codes, findings = stage_codes(spec)
+    journals: list[Journal] = []
+    for kind, name in (("D", "decisions.md"), ("P", "problems.md")):
+        path = spec / name
+        if path.is_file():
+            journals.append(Journal(kind, "", name, read_text(path)))
+    for relative, code in sorted(codes.items()):
+        for kind, name in (("D", "decisions.md"), ("P", "problems.md")):
+            path = spec / relative / name
+            if path.is_file():
+                journals.append(
+                    Journal(kind, code, f"{relative}/{name}", read_text(path))
+                )
     archive = spec / "archive"
     if archive.is_dir():
-        paths.extend(sorted(archive.glob("problems*.md")))
-    return "\n".join(read_text(path) for path in paths if path.is_file())
+        for path in sorted(archive.glob("problems*.md")):
+            if not path.is_file():
+                continue
+            journals.append(
+                Journal(
+                    "P",
+                    "#archive",
+                    path.relative_to(spec).as_posix(),
+                    read_text(path),
+                )
+            )
+    return journals, findings
+
+
+def has_codes(journals: Sequence[Journal]) -> bool:
+    """Whether the folder uses stage codes; the old layout has none."""
+    return any(journal.code not in ("", "#archive") for journal in journals)
 
 
 def run_checks(context: Context, *, index_mode: str = "summary") -> list[Finding]:
@@ -770,21 +1169,17 @@ def run_checks(context: Context, *, index_mode: str = "summary") -> list[Finding
         where = plan_path.relative_to(context.spec).as_posix()
         items = parse_plan(read_text(plan_path))
         findings += check_plan_symbols(items, symbols, where)
-        if plan_path.name == "plan.md":
-            # Stage files may tick resolved questions; only the plan promises work.
-            findings += check_plan_evidence(items, where)
 
     findings += check_commit_refs(documents, context.repos, context.primary)
     findings += check_file_refs(documents, index_files(context.file_roots))
 
-    decisions = context.spec / "decisions.md"
-    problems = problem_journal(context.spec)
-    findings += check_numbering(
-        read_text(decisions) if decisions.is_file() else "",
-        problems,
-        documents,
-        index_mode=index_mode,
-    )
+    journals, journal_findings = collect_journals(context.spec)
+    findings += journal_findings
+    findings += check_journal_numbering(journals, index_mode=index_mode)
+    findings += check_references(documents, journals, moved=moved_tokens(journals))
+    if has_codes(journals):
+        findings += check_transfers(journals)
+        findings += check_rules_links(journals, context.spec)
 
     findings += check_shortcuts(
         [

@@ -402,18 +402,12 @@ def test_stage_checkboxes_are_checked_like_plan_items(tmp_path):
     ]
 
 
-def test_checked_item_without_a_commit_or_a_test_warns(tmp_path):
-    spec = _cpp_spec(
-        tmp_path,
-        "- [x] `QuoteEngine` готов\n"
-        "- [x] `QuoteEngine` готов, `tests/test_engine.cpp`\n",
-    )
+def test_checked_item_needs_no_commit_or_test(tmp_path):
+    spec = _cpp_spec(tmp_path, "- [x] `QuoteEngine` готов\n")
 
     findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
 
-    assert [(finding.check, finding.level, finding.where) for finding in findings] == [
-        ("evidence", "warn", "plan.md:1")
-    ]
+    assert findings == []
 
 
 def test_cpp_file_refs_check_bounds(tmp_path):
@@ -505,7 +499,187 @@ def test_problem_journal_reads_the_archive(tmp_path):
         "## P1. closed — 2026-11-03\n", encoding="utf-8"
     )
 
-    journal = spec_check.problem_journal(tmp_path)
-    findings = spec_check.check_numbering("", journal, [("plan.md", "see P1")])
+    journals, findings = spec_check.collect_journals(tmp_path)
+    findings += spec_check.check_journal_numbering(journals)
+    findings += spec_check.check_references([("plan.md", "see P1 and P2")], journals)
+
+    assert findings == []
+
+
+def _stage_spec(
+    tmp_path,
+    *,
+    code="tc",
+    journal=None,
+    problems=None,
+    card=True,
+    stage="10-ownership",
+    root_decisions=None,
+):
+    spec = tmp_path / "spec"
+    spec.mkdir()
+    (spec / "index.md").write_text("---\ntask: T-1\nrepos: []\n---\n", encoding="utf-8")
+    folder = spec / "stages" / stage
+    folder.mkdir(parents=True)
+    if card:
+        (folder / "stage.md").write_text(f"# Этап\n\n**Код:** {code}\n", encoding="utf-8")
+    if journal is not None:
+        (folder / "decisions.md").write_text(journal, encoding="utf-8")
+    if problems is not None:
+        (folder / "problems.md").write_text(problems, encoding="utf-8")
+    if root_decisions is not None:
+        (spec / "decisions.md").write_text(root_decisions, encoding="utf-8")
+    return spec
+
+
+def test_stage_journal_numbers_carry_the_stage_code(tmp_path):
+    spec = _stage_spec(tmp_path, journal="## Dtc.1. Один писатель\n")
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert findings == []
+
+
+def test_stage_journal_record_without_a_code_is_an_error(tmp_path):
+    spec = _stage_spec(tmp_path, journal="## D2. Один писатель\n")
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert any("must be written Dtc.2" in finding.message for finding in findings)
+
+
+def test_stage_journal_needs_a_code_on_the_card(tmp_path):
+    spec = _stage_spec(tmp_path, card=False, journal="## Dtc.1. Один писатель\n")
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert any("no stage.md with a code" in finding.message for finding in findings)
+
+
+def test_stage_code_must_be_unique_and_lowercase(tmp_path):
+    spec = _stage_spec(tmp_path, journal="## Dtc.1. Один писатель\n")
+    other = spec / "stages" / "11-requests"
+    other.mkdir()
+    (other / "stage.md").write_text("**Код:** tc\n", encoding="utf-8")
+    (other / "decisions.md").write_text("## Dtc.1. Запрос\n", encoding="utf-8")
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert any("declared twice" in finding.message for finding in findings)
+    assert any("already used by another stage" in finding.message for finding in findings)
+
+
+def test_coded_reference_resolves_and_unknown_one_is_reported(tmp_path):
+    spec = _stage_spec(
+        tmp_path,
+        journal="## Dtc.1. Один писатель\n",
+        root_decisions=(
+            "## Действующие решения\n\n- **D1** — ссылка на Dtc.1\n- **D2** — ссылка на Dtc.9\n\n"
+            "## D1. Ссылка на Dtc.1\n\n## D2. Ссылка на Dtc.9\n"
+        ),
+    )
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert [finding.message for finding in findings] == [
+        "refers to Dtc.9, which is not declared"
+    ]
+
+
+def test_moved_record_is_named_on_both_sides(tmp_path):
+    spec = _stage_spec(
+        tmp_path,
+        journal="## Dtc.1. Один писатель\n\n- **Было:** D5\n",
+        root_decisions=(
+            "## Действующие решения\n\n- **D1** — корневое\n\n"
+            "## D1. Корневое\n\n"
+            "## Перенесено\n\n"
+            "- D5 → Dtc.1 — stages/10-ownership/decisions.md\n"
+        ),
+    )
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert findings == []
+
+
+def test_transfer_without_the_old_number_on_the_record_is_an_error(tmp_path):
+    spec = _stage_spec(
+        tmp_path,
+        journal="## Dtc.1. Один писатель\n",
+        root_decisions=(
+            "## Действующие решения\n\n- **D1** — корневое\n\n"
+            "## D1. Корневое\n\n"
+            "## Перенесено\n\n"
+            "- D5 → Dtc.1 — stages/10-ownership/decisions.md\n"
+        ),
+    )
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert any("no '**Было:** D5'" in finding.message for finding in findings)
+
+
+def test_record_without_a_transfer_line_is_an_error(tmp_path):
+    spec = _stage_spec(tmp_path, journal="## Dtc.1. Один писатель\n\n- **Было:** D5\n")
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert any("no transfer line" in finding.message for finding in findings)
+
+
+def test_rule_sources_and_record_rule_point_at_each_other(tmp_path):
+    spec = _stage_spec(
+        tmp_path, journal="## Dtc.1. Маски\n\n- **Правило:** rules/masks.md\n"
+    )
+    rules = spec / "rules"
+    rules.mkdir()
+    (rules / "masks.md").write_text("# Маски\n\n## Источники\n\n- Dtc.1\n", encoding="utf-8")
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert findings == []
+
+
+def test_record_naming_a_rule_that_does_not_list_it_is_an_error(tmp_path):
+    spec = _stage_spec(
+        tmp_path, journal="## Dtc.1. Маски\n\n- **Правило:** rules/masks.md\n"
+    )
+    rules = spec / "rules"
+    rules.mkdir()
+    (rules / "masks.md").write_text("# Маски\n\n## Источники\n\n- D1\n", encoding="utf-8")
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert any("is not listed in Источники" in finding.message for finding in findings)
+
+
+def test_rule_listing_a_record_that_does_not_name_it_is_an_error(tmp_path):
+    spec = _stage_spec(tmp_path, journal="## Dtc.1. Маски\n")
+    rules = spec / "rules"
+    rules.mkdir()
+    (rules / "masks.md").write_text("# Маски\n\n## Источники\n\n- Dtc.1\n", encoding="utf-8")
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert any("does not name this rule" in finding.message for finding in findings)
+
+
+def test_record_promoted_to_the_root_is_named_on_both_sides(tmp_path):
+    spec = _stage_spec(
+        tmp_path,
+        journal=(
+            "## Dtc.1. Осталось на месте\n\n"
+            "## Перенесено\n\n"
+            "- Dtc.2 → D3\n"
+        ),
+        root_decisions=(
+            "## Действующие решения\n\n"
+            "- **D1** — первое\n- **D2** — второе\n- **D3** — уехало из этапа\n\n"
+            "## D1. Первое\n\n## D2. Второе\n\n## D3. Уехало из этапа\n\n- **Было:** Dtc.2\n"
+        ),
+    )
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
 
     assert findings == []

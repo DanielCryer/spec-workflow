@@ -104,12 +104,16 @@ repos: [demo-calc]
 - **Ссылки:** demo-calc@<hash>, `src/calc.cpp:3`
 ```
 
-`tasks/demo-1/plan.md`:
+`tasks/demo-1/stages/calc/stage.md`:
 
 ```markdown
-# План
+# Этап 1. Арифметика
 
-## Этап 1
+**Эпик:** demo-1
+**Код:** calc
+**Статус:** in-progress
+
+## Работы
 
 - [x] Сложение в `Calculator`, тест `tests/calc_test.cpp`, коммит demo-calc@<hash>.
 - [ ] Умножение в `Calculator`.
@@ -126,7 +130,7 @@ python3 ~/src/spec-workflow/skills/spec-driven-development/scripts/spec_check.py
 
 ## 5. Гейт красный
 
-Поменяйте в `plan.md` имя класса на несуществующее:
+Поменяйте в `stages/calc/stage.md` имя класса на несуществующее:
 
 ```markdown
 - [x] Сложение в `Calculatr`, тест `tests/calc_test.cpp`, коммит demo-calc@<hash>.
@@ -135,7 +139,7 @@ python3 ~/src/spec-workflow/skills/spec-driven-development/scripts/spec_check.py
 Тот же запуск теперь даёт:
 
 ```text
-ERROR  symbols    plan.md:5  checked item names `Calculatr`, which is not in the code
+ERROR  symbols    stages/calc/stage.md:9  checked item names `Calculatr`, which is not in the code
 
 1 error(s), 0 warning(s)
 ```
