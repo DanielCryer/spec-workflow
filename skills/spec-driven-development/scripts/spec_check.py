@@ -644,7 +644,11 @@ class Context:
             return path.as_posix()
 
     def spec_documents(self) -> list[tuple[str, str]]:
-        paths = sorted(self.spec.glob("*.md")) + sorted(self.spec.glob("stages/*.md"))
+        paths = (
+            sorted(self.spec.glob("*.md"))
+            + sorted(self.spec.glob("stages/*.md"))
+            + sorted(self.spec.glob("rules/*.md"))
+        )
         return [
             (path.relative_to(self.spec).as_posix(), read_text(path))
             for path in paths
