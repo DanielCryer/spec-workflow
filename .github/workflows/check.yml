@@ -31,6 +31,11 @@ jobs:
         if: github.event_name == 'push'
         run: python3 scripts/check-release.py
 
+      - name: Lint the template repository
+        run: |
+          python3 skills/spec-driven-development/scripts/spec_lint.py \
+            --specs templates/specs-repo --strict
+
       - name: Gate on the template
         run: |
           python3 skills/spec-driven-development/scripts/spec_check.py \

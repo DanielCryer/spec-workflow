@@ -142,4 +142,6 @@ python3 <base>/scripts/spec_check.py --spec <SPECS_ROOT>/tasks/<папка>
 
 **Тесты гейт не запускает.** Прогон — работа исполнителя, результат живёт в карточке шага.
 
+Репозиторий целиком проверяет `scripts/spec_lint.py --specs <SPECS_ROOT>`: обязательные поля `index.md`, `TASKS.md` в обе стороны, папки этапов и коды, журналы, `todo.md`. Код он не читает, поэтому годится для pre-push: `sh scripts/install-hooks.sh <путь к spec-workflow>` включает хук, а тот проверяет только изменения, уходящие в push (`--base origin/master`), чтобы чужая сломанная задача не блокировала вас.
+
 Что именно читается, какие флаги есть (`--strict`, `--index`, `--repo`, `--file-root`, `--projects-root`) и чем `--index strict` отличается от `summary` — в `--help` и докстринге скрипта.

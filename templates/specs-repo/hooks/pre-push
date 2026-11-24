@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Run the specs linter before push. Installed by scripts/install-hooks.sh."""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+def main() -> int:
+    root = Path(
+        subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
+    )
+    config = root / ".git" / "spec-lint-path"
+    if not config.is_file():
+        print(
+            "spec-lint: не настроен, пропускаю. Включить: sh scripts/install-hooks.sh <spec-workflow>",
+            file=sys.stderr,
+        )
+        return 0
+    linter = config.read_text(encoding="utf-8").strip()
+    base = os.environ.get("SPEC_LINT_BASE", "origin/master")
+    return subprocess.call(
+        [sys.executable, linter, "--specs", str(root), "--base", base]
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
