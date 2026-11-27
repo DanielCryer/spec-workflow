@@ -628,41 +628,67 @@ def test_record_without_a_transfer_line_is_an_error(tmp_path):
     assert any("no transfer line" in finding.message for finding in findings)
 
 
-def test_rule_sources_and_record_rule_point_at_each_other(tmp_path):
+def test_rule_sources_are_not_paired_with_a_decision(tmp_path):
     spec = _stage_spec(
-        tmp_path, journal="## Dtc.1. Маски\n\n- **Правило:** rules/masks.md\n"
+        tmp_path,
+        journal="## Dtc.1. Маски\n",
+        problems="## Ptc.1. Проблема\n",
     )
     rules = spec / "rules"
     rules.mkdir()
-    (rules / "masks.md").write_text("# Маски\n\n## Источники\n\n- Dtc.1\n", encoding="utf-8")
+    (rules / "masks.md").write_text(
+        "# Маски\n\n## Источники\n\n- Dtc.1\n- Ptc.1\n", encoding="utf-8"
+    )
 
     findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
 
     assert findings == []
 
 
-def test_record_naming_a_rule_that_does_not_list_it_is_an_error(tmp_path):
+def test_retired_line_keeps_a_merged_number_occupied(tmp_path):
     spec = _stage_spec(
-        tmp_path, journal="## Dtc.1. Маски\n\n- **Правило:** rules/masks.md\n"
+        tmp_path,
+        journal=(
+            "## Dtc.1. Один писатель\n\n"
+            "## Снято\n\n"
+            "- Dtc.2 → влито в Dtc.1\n"
+        ),
     )
-    rules = spec / "rules"
-    rules.mkdir()
-    (rules / "masks.md").write_text("# Маски\n\n## Источники\n\n- D1\n", encoding="utf-8")
 
     findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
 
-    assert any("is not listed in Источники" in finding.message for finding in findings)
+    assert findings == []
 
 
-def test_rule_listing_a_record_that_does_not_name_it_is_an_error(tmp_path):
-    spec = _stage_spec(tmp_path, journal="## Dtc.1. Маски\n")
-    rules = spec / "rules"
-    rules.mkdir()
-    (rules / "masks.md").write_text("# Маски\n\n## Источники\n\n- Dtc.1\n", encoding="utf-8")
+def test_retired_removal_needs_no_transfer_pair(tmp_path):
+    spec = _stage_spec(
+        tmp_path,
+        journal=(
+            "## Dtc.1. Один писатель\n\n"
+            "## Снято\n\n"
+            "- Dtc.2 → снято: не решение\n"
+        ),
+    )
 
     findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
 
-    assert any("does not name this rule" in finding.message for finding in findings)
+    assert findings == []
+
+
+def test_reference_to_a_retired_number_resolves(tmp_path):
+    spec = _stage_spec(
+        tmp_path,
+        journal=(
+            "## Dtc.1. Один писатель\n\n"
+            "## Снято\n\n"
+            "- Dtc.2 → влито в Dtc.1\n"
+        ),
+    )
+    (spec / "spec.md").write_text("# Требования\n\n- См. Dtc.2.\n", encoding="utf-8")
+
+    findings = spec_check.run_checks(spec_check.load_context(spec, tmp_path))
+
+    assert findings == []
 
 
 def test_record_promoted_to_the_root_is_named_on_both_sides(tmp_path):

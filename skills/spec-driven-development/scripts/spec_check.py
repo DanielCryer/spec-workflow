@@ -14,11 +14,11 @@ Checks:
 - ``paths``     every ``file.ext:NN`` reference points inside an existing file;
 - ``numbering`` decision and problem numbers are unique in the task folder, a
   stage journal always carries its stage code, every reference resolves to a
-  record or to a transfer, the root summary lists every root record, and — once
-  stage codes are in use — a moved record is named on both sides and
-  ``**Правило:**`` in a record matches ``Источники`` in ``rules/``. The index may
-  be a line per decision or a thematic digest that names the numbers;
-  ``--index`` sets how strict that check is;
+  record, a retired line in ``## Снято`` or a transfer, the root summary lists
+  every root record, and — once stage codes are in use — a moved record is named
+  on both sides. Semantic links between rules and records are the reviewer's
+  job, not the gate's. The index may be a line per decision or a thematic digest
+  that names the numbers; ``--index`` sets how strict that check is;
 - ``shortcuts`` every ``shortcut:`` marker in a code comment states a limit and
   a return condition. Only comments count: a marker inside a string literal or
   a docstring is not a marker, and identifiers such as ``QShortcut::activated``
@@ -116,13 +116,15 @@ _DECISION_INDEX = re.compile(
 _ACTIVE_HEADING = re.compile(
     r"^##[ \t]+(?:Действующие решения|Active decisions)[ \t]*$", re.MULTILINE | re.IGNORECASE
 )
-_MOVED_HEADING = re.compile(
-    r"^##[ \t]+(?:Перенесено|Moved)[ \t]*$", re.MULTILINE | re.IGNORECASE
-)
-_SOURCES_HEADING = re.compile(
-    r"^##[ \t]+(?:Источники|Sources)[ \t]*$", re.MULTILINE | re.IGNORECASE
+_RETIRED_HEADING = re.compile(
+    r"^##[ \t]+(?:Снято|Retired|Перенесено|Moved)[ \t]*$",
+    re.MULTILINE | re.IGNORECASE,
 )
 _REFERENCE = re.compile(r"\b([DP])(?:([a-z]{2,8})\.)?(\d{1,4})\b")
+_RETIRED_LINE = re.compile(
+    r"^-[ \t]*([DP](?:[a-z]{2,8}\.)?\d+)[ \t]*→[ \t]*(.*)$",
+    re.MULTILINE,
+)
 _MOVED_LINE = re.compile(
     r"^-[ \t]*([DP](?:[a-z]{2,8}\.)?\d+)[ \t]*→[ \t]*([DP](?:[a-z]{2,8}\.)?\d+)"
     r"(?:[ \t]*(?:—|-)[ \t]*`?([^`\s]+)`?)?",
@@ -130,9 +132,6 @@ _MOVED_LINE = re.compile(
 )
 _BY_WAS = re.compile(
     r"\*\*\s*Было:?\s*\*\*:?[ \t]*`?([DP](?:[a-z]{2,8}\.)?\d+)`?"
-)
-_RULE_REF = re.compile(
-    r"\*\*\s*Правило:?\s*\*\*:?[ \t]*`?([\w./-]+\.md)`?"
 )
 _CODE_DECL = re.compile(
     r"\*\*\s*Код:?\s*\*\*:?[ \t]*`?([A-Za-z0-9_-]+)`?", re.MULTILINE
@@ -541,7 +540,7 @@ def check_journal_numbering(
     seen: dict[str, str] = {}
     groups: dict[tuple[str, str], list[int]] = {}
     group_where: dict[tuple[str, str], str] = {}
-    retired = {(token.kind, token.code, token.number) for token in moved_tokens(journals)}
+    retired = {(token.kind, token.code, token.number) for token in retired_tokens(journals)}
     for journal in journals:
         for token, _body in record_spans(journal.text, journal.kind):
             if journal.code == "" and token.code:
@@ -668,12 +667,26 @@ def check_references(
     return findings
 
 
+def retired_lines(journal: Journal) -> list[tuple[Token, str]]:
+    """Lines of the ``## Снято`` section: the old token and what follows the arrow."""
+    body = section(journal.text, _RETIRED_HEADING)
+    if not body:
+        return []
+    lines: list[tuple[Token, str]] = []
+    for old_text, rest in _RETIRED_LINE.findall(body):
+        old = parse_token(old_text)
+        if old is not None:
+            lines.append((old, rest.strip()))
+    return lines
+
+
 def transfer_lines(journal: Journal) -> list[tuple[Token, Token, str | None]]:
     """Transfers written in a journal: the old token, the new one, the target path.
 
-    The path is omitted when the record moved to the root journal.
+    A line whose right side is not a token is a merge or a removal, not a move;
+    ``retired_lines`` still counts the old number as occupied.
     """
-    body = section(journal.text, _MOVED_HEADING)
+    body = section(journal.text, _RETIRED_HEADING)
     if not body:
         return []
     lines: list[tuple[Token, Token, str | None]] = []
@@ -686,12 +699,12 @@ def transfer_lines(journal: Journal) -> list[tuple[Token, Token, str | None]]:
     return lines
 
 
-def moved_tokens(journals: Sequence[Journal]) -> set[Token]:
-    """Old numbers named in a transfer section, wherever the section lives."""
+def retired_tokens(journals: Sequence[Journal]) -> set[Token]:
+    """Old numbers named in ``## Снято``: moved, merged or dropped."""
     return {
         old
         for journal in journals
-        for old, _new, _path in transfer_lines(journal)
+        for old, _rest in retired_lines(journal)
     }
 
 
@@ -755,62 +768,6 @@ def check_transfers(journals: Sequence[Journal]) -> list[Finding]:
                         journal.path,
                         f"{token.text} says it was moved from {was.group(1)}, "
                         "but no transfer line says so",
-                    )
-                )
-    return findings
-
-
-def check_rules_links(journals: Sequence[Journal], spec: Path) -> list[Finding]:
-    """``**Правило:**`` in a record and ``Источники`` in ``rules/`` point at each other."""
-    findings: list[Finding] = []
-    named: dict[str, set[str]] = {}
-    for journal in journals:
-        for token, body in record_spans(journal.text, journal.kind):
-            match = _RULE_REF.search(body)
-            if match is None:
-                continue
-            rule = match.group(1)
-            named.setdefault(rule, set()).add(token.text)
-            if not (spec / rule).is_file():
-                findings.append(
-                    Finding(
-                        "error",
-                        "numbering",
-                        journal.path,
-                        f"{token.text} names {rule}, which does not exist",
-                    )
-                )
-
-    for rule, tokens in sorted(named.items()):
-        path = spec / rule
-        if not path.is_file():
-            continue
-        sources = section(read_text(path), _SOURCES_HEADING)
-        listed = {token.text for token in tokens_in(sources or "")}
-        for token in sorted(tokens - listed):
-            findings.append(
-                Finding(
-                    "error",
-                    "numbering",
-                    rule,
-                    f"{token} names this rule, but it is not listed in Источники",
-                )
-            )
-
-    rules_dir = spec / "rules"
-    if rules_dir.is_dir():
-        for path in sorted(rules_dir.glob("*.md")):
-            relative = f"rules/{path.name}"
-            sources = section(read_text(path), _SOURCES_HEADING)
-            for token in sorted(tokens_in(sources or ""), key=lambda item: item.text):
-                if token.text in named.get(relative, set()):
-                    continue
-                findings.append(
-                    Finding(
-                        "error",
-                        "numbering",
-                        relative,
-                        f"Источники list {token.text}, but the record does not name this rule",
                     )
                 )
     return findings
@@ -1176,10 +1133,9 @@ def run_checks(context: Context, *, index_mode: str = "summary") -> list[Finding
     journals, journal_findings = collect_journals(context.spec)
     findings += journal_findings
     findings += check_journal_numbering(journals, index_mode=index_mode)
-    findings += check_references(documents, journals, moved=moved_tokens(journals))
+    findings += check_references(documents, journals, moved=retired_tokens(journals))
     if has_codes(journals):
         findings += check_transfers(journals)
-        findings += check_rules_links(journals, context.spec)
 
     findings += check_shortcuts(
         [

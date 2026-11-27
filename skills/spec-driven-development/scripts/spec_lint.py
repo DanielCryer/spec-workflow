@@ -14,7 +14,7 @@ Checks:
 - ``tasks``      ``TASKS.md`` and the folders agree in both directions: one row
   per folder, and the row's ids, status and date match ``index.md``;
 - ``numbering``  the same journal checks as the gate: unique numbers, declared
-  references, two-sided transfers, and ``**Правило:**`` matching ``Источники``;
+  references, and two-sided transfers;
 - ``todo``       ``todo.md`` stays under the cap;
 - ``closure``    a ``done`` task has a filled ``Итог``;
 - ``plan``       ``plan.md`` keeps order and risks, not checkboxes.
@@ -336,10 +336,9 @@ def check_task(task: Path) -> list[Finding]:
     findings += journal_findings
     findings += spec_check.check_journal_numbering(journals)
     documents = task_documents(task)
-    findings += spec_check.check_references(documents, journals, spec_check.moved_tokens(journals))
+    findings += spec_check.check_references(documents, journals, spec_check.retired_tokens(journals))
     if spec_check.has_codes(journals):
         findings += spec_check.check_transfers(journals)
-        findings += spec_check.check_rules_links(journals, task)
 
     todo = task / "todo.md"
     if todo.is_file():
